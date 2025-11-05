@@ -1,70 +1,65 @@
 version: '3.9'
 
 services:
-  # 🚀 Tu aplicación .NET
+  # 🚀 Aplicación .NET
   web:
     build: .
-    container_name: multi-db-api
+    container_name: ZenCloud
     ports:
       - "8080:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: "Development"
 
-      # 🔗 Cadenas de conexión y hosts de bases de datos
-      ConnectionStrings__MySQL: "Server=mysql;Port=3306;Database=testdb;User=root;Password=root;"
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=testdb;Username=postgres;Password=postgres;"
-      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=TestDB;User=sa;Password=Your_password123;"
-      ConnectionStrings__Mongo: "mongodb://mongo:27017"
-      ConnectionStrings__Cassandra: "cassandra"
-      ConnectionStrings__Redis: "redis:6379"
+      # 🔗 Cadenas de conexión
+      ConnectionStrings__MySQL: "Server=mysql-ZenDb;Port=3306;Database=testdb;User=root;Password=S3cureMy$qlP@ss;"
+      ConnectionStrings__Postgres: "Host=postgres-ZenDb;Port=5432;Database=testdb;Username=postgres;Password=P0stGr3sP@ss;"
+      ConnectionStrings__SqlServer: "Server=sqlserver-ZenDb,1433;Database=TestDB;User=sa;Password=Str0ngS@P@ssw0rd!;"
+      ConnectionStrings__Mongo: "mongodb://mongoadmin:MongoP@ss123@mongo-ZenDb:27017/testdb"
+      ConnectionStrings__Cassandra: "cassandra://admin:AdminP@ss123@cassandra-ZenDb:9042"
+      ConnectionStrings__Redis: "redis-ZenDb:6379,password=R3disP@ss!"
 
     depends_on:
-      - mysql
-      - postgres
-      - sqlserver
-      - mongo
-      - cassandra
-      - redis
-
-    # 🧠 Descomenta estas líneas si quieres modo desarrollo con hot reload:
-    # volumes:
-    #   - .:/app
-    # command: dotnet watch run --urls=http://0.0.0.0:8080
+      - mysql-ZenDb
+      - postgres-ZenDb
+      - sqlserver-ZenDb
+      - mongo-ZenDb
+      - cassandra-ZenDb
+      - redis-ZenDb
 
   # 🐬 MySQL
-  mysql:
+  mysql-ZenDb:
     image: mysql:8.0
-    container_name: mysql
+    container_name: mysql-ZenDb
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: S3cureMy$qlP@ss
       MYSQL_DATABASE: testdb
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
 
   # 🐘 PostgreSQL
-  postgres:
+  postgres-ZenDb:
     image: postgres:16
-    container_name: postgres
+    container_name: postgres-ZenDb
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: P0stGr3sP@ss
       POSTGRES_DB: testdb
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   # 🏢 SQL Server
-  sqlserver:
+  sqlserver-ZenDb:
     image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: sqlserver
+    container_name: sqlserver-ZenDb
     restart: always
     environment:
-      SA_PASSWORD: "Your_password123"
+      SA_PASSWORD: "Str0ngS@P@ssw0rd!"
       ACCEPT_EULA: "Y"
     ports:
       - "1433:1433"
@@ -72,11 +67,13 @@ services:
       - sqlserver_data:/var/opt/mssql
 
   # 🍃 MongoDB
-  mongo:
+  mongo-ZenDb:
     image: mongo:7
-    container_name: mongo
+    container_name: mongo-ZenDb
     restart: always
     environment:
+      MONGO_INITDB_ROOT_USERNAME: mongoadmin
+      MONGO_INITDB_ROOT_PASSWORD: MongoP@ss123
       MONGO_INITDB_DATABASE: testdb
     ports:
       - "27017:27017"
@@ -84,26 +81,31 @@ services:
       - mongo_data:/data/db
 
   # 🌐 Cassandra
-  cassandra:
+  cassandra-ZenDb:
     image: cassandra:5
-    container_name: cassandra
+    container_name: cassandra-ZenDb
     restart: always
+    environment:
+      CASSANDRA_AUTHENTICATOR: PasswordAuthenticator
+      CASSANDRA_SUPERUSER_USERNAME: admin
+      CASSANDRA_SUPERUSER_PASSWORD: AdminP@ss123
     ports:
       - "9042:9042"
     volumes:
       - cassandra_data:/var/lib/cassandra
 
   # ⚡ Redis
-  redis:
+  redis-ZenDb:
     image: redis:7
-    container_name: redis
+    container_name: redis-ZenDb
     restart: always
+    command: ["redis-server", "--requirepass", "R3disP@ss!"]
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
 
-# 💾 Volúmenes persistentes para todas las bases de datos
+# 💾 Volúmenes persistentes
 volumes:
   mysql_data:
   postgres_data:
