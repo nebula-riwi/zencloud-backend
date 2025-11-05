@@ -1,0 +1,113 @@
+version: '3.9'
+
+services:
+  # 🚀 Tu aplicación .NET
+  web:
+    build: .
+    container_name: multi-db-api
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+
+      # 🔗 Cadenas de conexión y hosts de bases de datos
+      ConnectionStrings__MySQL: "Server=mysql;Port=3306;Database=testdb;User=root;Password=root;"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=testdb;Username=postgres;Password=postgres;"
+      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=TestDB;User=sa;Password=Your_password123;"
+      ConnectionStrings__Mongo: "mongodb://mongo:27017"
+      ConnectionStrings__Cassandra: "cassandra"
+      ConnectionStrings__Redis: "redis:6379"
+
+    depends_on:
+      - mysql
+      - postgres
+      - sqlserver
+      - mongo
+      - cassandra
+      - redis
+
+    # 🧠 Descomenta estas líneas si quieres modo desarrollo con hot reload:
+    # volumes:
+    #   - .:/app
+    # command: dotnet watch run --urls=http://0.0.0.0:8080
+
+  # 🐬 MySQL
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: testdb
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # 🐘 PostgreSQL
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 🏢 SQL Server
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    restart: always
+    environment:
+      SA_PASSWORD: "Your_password123"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+  # 🍃 MongoDB
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: testdb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # 🌐 Cassandra
+  cassandra:
+    image: cassandra:5
+    container_name: cassandra
+    restart: always
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  # ⚡ Redis
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+# 💾 Volúmenes persistentes para todas las bases de datos
+volumes:
+  mysql_data:
+  postgres_data:
+  sqlserver_data:
+  mongo_data:
+  cassandra_data:
+  redis_data:
