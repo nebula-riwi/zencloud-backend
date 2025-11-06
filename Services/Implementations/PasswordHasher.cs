@@ -1,8 +1,4 @@
-using BCrypt.Net; // Importa la biblioteca bcrypt
-using System;
-
-namespace ZenCloud.Services;
-
+// ✅ PERFECTO ASÍ - NO CAMBIES
 public class PasswordHasher
 {
     public string HashPassword(string password)

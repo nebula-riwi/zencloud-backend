@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using ZenCloud.Data.Entities;
+using ZenCloud.DTOs;
 using ZenCloud.Data.Repositories.Interfaces;
 using System.Threading.Tasks;
+using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Controllers;
 

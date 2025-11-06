@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace ZenCloud.Data.Entities;
+namespace ZenCloud.DTOs;
 
 public class RegisterRequest
 {

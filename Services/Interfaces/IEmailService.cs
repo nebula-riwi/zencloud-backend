@@ -1,8 +1,9 @@
 ﻿using System.Threading.Tasks;
 
-namespace ZenCloud.Data.Repositories.Interfaces;
+namespace ZenCloud.Services.Interfaces;
 
 public interface IEmailService
 {
     Task SendVerificationEmailAsync(string email, string verificationToken);
+    Task SendPasswordResetEmailAsync(string email, string token);
 }

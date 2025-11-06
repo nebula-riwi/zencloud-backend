@@ -1,12 +1,13 @@
 using MailKit.Net.Smtp;
 using MimeKit;
 using System.Threading.Tasks;
-using ZenCloud.Data.Repositories.Interfaces; 
-using System.IO; 
+using ZenCloud.Data.Repositories.Interfaces;
+using System.IO;
+using ZenCloud.Services.Interfaces;
 
-namespace ZenCloud.Data.Repositories.Implementations; 
+namespace ZenCloud.Services.Implementations;
 
-public class EmailService : IEmailService
+public class EmailService : IEmailService // Solo una vez IEmailService
 {
     private readonly string _smtpServer;
     private readonly int _smtpPort;
@@ -14,7 +15,7 @@ public class EmailService : IEmailService
     private readonly string _smtpPassword;
     private readonly string _fromEmail;
     private readonly string _fromName;
-    private readonly string _verificationEmailTemplate; 
+    private readonly string _verificationEmailTemplate;
 
     public EmailService()
     {
@@ -25,8 +26,7 @@ public class EmailService : IEmailService
         _fromEmail = System.Environment.GetEnvironmentVariable("SMTP_FROMEMAIL");
         _fromName = System.Environment.GetEnvironmentVariable("SMTP_FROMNAME");
 
-        
-        _verificationEmailTemplate = File.ReadAllText("Templates/VerificationEmailTemplate.html"); 
+        _verificationEmailTemplate = File.ReadAllText("Templates/VerificationEmailTemplate.html");
     }
 
     public async Task SendVerificationEmailAsync(string email, string verificationToken)
@@ -36,13 +36,13 @@ public class EmailService : IEmailService
         message.To.Add(new MailboxAddress(email, email));
         message.Subject = "Verify Your Email";
 
-        string body = _verificationEmailTemplate 
-            .Replace("[Nombre del Usuario]", email) 
+        string body = _verificationEmailTemplate
+            .Replace("[Nombre del Usuario]", email)
             .Replace("[Enlace de Verificación]", $"http://localhost:5089/Auth/verify?email={email}&token={verificationToken}");
 
         message.Body = new TextPart("html")
         {
-            Text = body 
+            Text = body
         };
 
         using (var client = new SmtpClient())
@@ -52,5 +52,10 @@ public class EmailService : IEmailService
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
         }
+    }
+
+    public async Task SendPasswordResetEmailAsync(string email, string token)
+    {
+        await Task.CompletedTask;
     }
 }
