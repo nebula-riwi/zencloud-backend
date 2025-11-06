@@ -1,4 +1,4 @@
-﻿namespace ZenCloud.Data.Entities;
+﻿namespace ZenCloud.DTOs;
 
 public class LoginRequest
 {
