@@ -36,16 +36,15 @@ namespace ZenCloud.Controllers
         }
 
         // ✅ Webhook para procesar pagos
+        [AllowAnonymous]
         [HttpPost("webhook")]
         public async Task<IActionResult> Webhook([FromBody] JsonElement data)
         {
+            Console.WriteLine("📬 Webhook recibido:");
+            Console.WriteLine(data.ToString());
+        
             await _mpService.ProcesarWebhookAsync(data);
             return Ok();
         }
     }
 }
-//{
-//   "userId": "b284d6f4-4289-4cee-8055-197c26c9f8a7",
-//   "amount": 5000,
-//   "paymentType": "subscription"
-// }
