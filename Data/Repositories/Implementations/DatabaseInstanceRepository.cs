@@ -11,6 +11,7 @@ public class DatabaseInstanceRepository : Repository<DatabaseInstance>, IDatabas
     {
     }
     
+    //Gets all databases by user Id
     public async Task<IEnumerable<DatabaseInstance>> GetByUserIdAsync(Guid userId)
     {
         return await _dbSet
@@ -18,7 +19,8 @@ public class DatabaseInstanceRepository : Repository<DatabaseInstance>, IDatabas
             .Include(db => db.Engine)
             .ToListAsync();
     }
-
+    
+    //Gets how many db's a user has
     public async Task<int> CountByUserAndEngineAsync(Guid userId, Guid engineId)
     {
         return await _dbSet
@@ -28,6 +30,7 @@ public class DatabaseInstanceRepository : Repository<DatabaseInstance>, IDatabas
             .CountAsync();
     }
 
+    //Looks for a database by its name
     public async Task<bool> DatabaseNameExistsAsync(string databaseName)
     {
         return await _dbSet

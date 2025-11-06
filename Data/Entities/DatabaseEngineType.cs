@@ -6,6 +6,6 @@ public enum DatabaseEngineType
     PostgreSQL = 2,
     MongoDB = 3,
     Redis = 4,
-    MariaDB = 5,
+    Cassandra = 5,
     SQLServer = 6
 }

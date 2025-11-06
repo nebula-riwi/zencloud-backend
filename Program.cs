@@ -1,5 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using ZenCloud.Data.DbContext;
+using ZenCloud.Data.Repositories.Implementations;
+using ZenCloud.Data.Repositories.Interfaces;
+using ZenCloud.Services.Implementations;
+using ZenCloud.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,8 +14,18 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+//Database connection
 builder.Services.AddDbContext<PgDbContext>(options => 
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+//Repositories
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceRepository>();
+
+//Services
+builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();
+builder.Services.AddScoped<ICredentialsGeneratorService, CredentialsGeneratorService>();
+builder.Services.AddScoped<IPlanValidationService, PlanValidationService>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
