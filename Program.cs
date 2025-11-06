@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ZenCloud.Data.DbContext;
+using ZenCloud.Data.Repositories.Implementations;
+using ZenCloud.Data.Repositories.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,8 +11,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddControllers();
 
-// builder.Services.AddDbContext<PgDbContext>(options => 
-//     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDbContext<PgDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<ZenCloud.Services.MercadoPagoService>();
 
 var app = builder.Build();
