@@ -1,6 +1,6 @@
-﻿using ZenCloud.Data.Entities;
+﻿using ZenCloud.DTOs;
 
-namespace ZenCloud.Data.Repositories.Interfaces;
+namespace ZenCloud.Services.Interfaces;
 
 public interface IAuthService
 {
