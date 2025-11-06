@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using ZenCloud.DTOs;
@@ -29,7 +30,7 @@ namespace ZenCloud.Controllers
                 request.PaymentType,
                 successUrl: "https://nebula.andrescortes.dev/success",
                 failureUrl: "https://nebula.andrescortes.dev/failure",
-                notificationUrl: "http://localhost:5089/api/payments/webhook"
+                notificationUrl: "https://service.nebula.andrescortes.dev/api/payments/webhook"
             );
 
             return Content(result, "application/json");
