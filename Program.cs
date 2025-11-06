@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ZenCloud.Data.DbContext;
+
 using Microsoft.OpenApi.Models;
 using DotNetEnv; // Add this
 using ZenCloud.Data.Repositories.Interfaces; // Add this
@@ -15,10 +16,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
+
+
+
+builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
+builder.Services.AddScoped<ZenCloud.Services.MercadoPagoService>();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "Your API", Version = "v1" });
 });
+
 
 builder.Services.AddDbContext<PgDbContext>(options =>
     options.UseNpgsql(System.Environment.GetEnvironmentVariable("CONNECTION_STRING"))); // Use environment variable

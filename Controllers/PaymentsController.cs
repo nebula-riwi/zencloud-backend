@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
-using ZenCloud.Data.Entities;
+using ZenCloud.DTOs;
 using ZenCloud.Services;
 
 namespace ZenCloud.Controllers
@@ -16,19 +16,26 @@ namespace ZenCloud.Controllers
             _mpService = mpService;
         }
 
+        // ✅ Crear preferencia de pago
         [HttpPost("create")]
-        public async Task<IActionResult> Create([FromBody] Payment request)
+        public async Task<IActionResult> Create([FromBody] CreatePaymentRequest request)
         {
+            if (request == null || request.Amount <= 0)
+                return BadRequest("El monto debe ser mayor a 0.");
+
             var result = await _mpService.CrearPreferenciaAsync(
-                request,
+                request.UserId,
+                request.Amount,
+                request.PaymentType,
                 successUrl: "https://nebula.andrescortes.dev/success",
                 failureUrl: "https://nebula.andrescortes.dev/failure",
-                notificationUrl: "https://service.nebula.andrescortes.dev/api/payments/webhook"
+                notificationUrl: "http://localhost:5089/api/payments/webhook"
             );
 
             return Content(result, "application/json");
         }
 
+        // ✅ Webhook para procesar pagos
         [HttpPost("webhook")]
         public async Task<IActionResult> Webhook([FromBody] JsonElement data)
         {
@@ -37,3 +44,8 @@ namespace ZenCloud.Controllers
         }
     }
 }
+//{
+//   "userId": "b284d6f4-4289-4cee-8055-197c26c9f8a7",
+//   "amount": 5000,
+//   "paymentType": "subscription"
+// }

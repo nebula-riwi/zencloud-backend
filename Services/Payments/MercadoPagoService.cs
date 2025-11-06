@@ -25,18 +25,18 @@ namespace ZenCloud.Services
                 new AuthenticationHeaderValue("Bearer", _accessToken);
         }
 
-        public async Task<string> CrearPreferenciaAsync(Payment payment, string successUrl, string failureUrl, string notificationUrl)
+        // ✅ Crear preferencia de pago en Mercado Pago
+        public async Task<string> CrearPreferenciaAsync(Guid userId, decimal amount, string paymentType, string successUrl, string failureUrl, string notificationUrl)
         {
             var body = new
             {
                 items = new[]
                 {
-                    new
-                    {
-                        title = "Plan Premium",
+                    new {
+                        title = $"Pago {paymentType}",
                         quantity = 1,
                         currency_id = "COP",
-                        unit_price = payment.Amount
+                        unit_price = amount
                     }
                 },
                 back_urls = new
@@ -50,18 +50,41 @@ namespace ZenCloud.Services
 
             var json = JsonSerializer.Serialize(body);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-
+            
             var response = await _httpClient.PostAsync("checkout/preferences", content);
-            response.EnsureSuccessStatusCode();
-
             var responseBody = await response.Content.ReadAsStringAsync();
 
-            // Guardar el pago en la BD
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"❌ MercadoPago Error: {response.StatusCode}");
+                Console.WriteLine(responseBody);
+                throw new Exception($"MercadoPago Error: {response.StatusCode} - {responseBody}");
+            }
+            
+            var jsonDoc = JsonDocument.Parse(responseBody).RootElement;
+            var initPoint = jsonDoc.GetProperty("init_point").GetString()!;
+            var prefId = jsonDoc.GetProperty("id").GetString()!;
+
+            // ✅ Guardar el pago en la BD como pendiente
+            var payment = new Payment
+            {
+                PaymentId = Guid.NewGuid(),
+                UserId = userId,
+                Amount = amount,
+                Currency = "COP",
+                PaymentStatus = PaymentStatusType.Pending,
+                PaymentMethod = paymentType,
+                TransactionDate = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                MercadoPagoPaymentId = prefId // ID de la preferencia
+            };
+
             await _paymentRepository.AddAsync(payment);
 
-            return responseBody;
+            return JsonSerializer.Serialize(new { init_point = initPoint });
         }
 
+        // ✅ Procesar Webhook de Mercado Pago
         public async Task ProcesarWebhookAsync(JsonElement data)
         {
             if (!data.TryGetProperty("type", out var type) || type.GetString() != "payment")
@@ -74,11 +97,9 @@ namespace ZenCloud.Services
 
             var paymentData = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
             var status = paymentData.GetProperty("status").GetString() ?? "pending";
-
             var mpPaymentId = paymentData.GetProperty("id").ToString();
 
             var existingPayment = await _paymentRepository.GetByMercadoPagoIdAsync(mpPaymentId);
-
             if (existingPayment != null)
             {
                 existingPayment.PaymentStatus = status switch
@@ -88,6 +109,7 @@ namespace ZenCloud.Services
                     _ => PaymentStatusType.Pending
                 };
 
+                existingPayment.TransactionDate = DateTime.UtcNow;
                 await _paymentRepository.UpdateAsync(existingPayment);
             }
         }

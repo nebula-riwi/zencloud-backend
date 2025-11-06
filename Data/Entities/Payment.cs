@@ -4,7 +4,7 @@ public class Payment
 {
     public Guid PaymentId { get; set; }
     public Guid UserId { get; set; }
-    public Guid SubscriptionId { get; set; }
+    public Guid? SubscriptionId { get; set; }
     public string? MercadoPagoPaymentId { get; set; }
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "COP";
@@ -15,5 +15,5 @@ public class Payment
 
     // Navigation properties
     public User User { get; set; } = null!;
-    public Subscription Subscription { get; set; } = null!;
+    public Subscription? Subscription { get; set; } = null!;
 }
