@@ -1,70 +1,75 @@
 version: '3.9'
 
 services:
-  # 🚀 Tu aplicación .NET
+  # 🚀 Aplicación .NET
   web:
     build: .
-    container_name: multi-db-api
+    container_name: ZenCloud
     ports:
       - "8080:8080"
     environment:
-      ASPNETCORE_ENVIRONMENT: "Development"
-
-      # 🔗 Cadenas de conexión y hosts de bases de datos
-      ConnectionStrings__MySQL: "Server=mysql;Port=3306;Database=testdb;User=root;Password=root;"
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=testdb;Username=postgres;Password=postgres;"
-      ConnectionStrings__SqlServer: "Server=sqlserver,1433;Database=TestDB;User=sa;Password=Your_password123;"
-      ConnectionStrings__Mongo: "mongodb://mongo:27017"
-      ConnectionStrings__Cassandra: "cassandra"
-      ConnectionStrings__Redis: "redis:6379"
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://*:8080"
+      
+      # 🔐 Configuración principal
+      CONNECTION_STRING: "${CONNECTION_STRING}"
+      SMTP_SERVER: "${SMTP_SERVER}"
+      SMTP_PORT: "${SMTP_PORT}"
+      SMTP_USERNAME: "${SMTP_USERNAME}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD}"
+      SMTP_FROMEMAIL: "${SMTP_FROMEMAIL}"
+      SMTP_FROMNAME: "${SMTP_FROMNAME}"
+      
+      # 🔗 Connection Strings COMPLETAS desde variables
+      ConnectionStrings__MySQL: "Server=${MYSQL_HOST};Port=${MYSQL_PORT};Database=${MYSQL_DEFAULT_DATABASE};User=${MYSQL_ADMIN_USER};Password=${MYSQL_ADMIN_PASSWORD};"
+      ConnectionStrings__Postgres: "Host=${POSTGRES_HOST};Port=${POSTGRES_PORT};Database=${POSTGRES_DEFAULT_DATABASE};Username=${POSTGRES_ADMIN_USER};Password=${POSTGRES_ADMIN_PASSWORD};"
+      ConnectionStrings__SqlServer: "Server=${SQLSERVER_HOST};Port=${SQLSERVER_PORT};Database=${SQLSERVER_DEFAULT_DATABASE};User=${SQLSERVER_ADMIN_USER};Password=${SQLSERVER_ADMIN_PASSWORD};"
+      ConnectionStrings__Mongo: "mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DEFAULT_DATABASE}"
+      ConnectionStrings__Cassandra: "cassandra://${CASSANDRA_ADMIN_USER}:${CASSANDRA_ADMIN_PASSWORD}@${CASSANDRA_HOST}:${CASSANDRA_PORT}"
+      ConnectionStrings__Redis: "${REDIS_HOST}:${REDIS_PORT},password=${REDIS_ADMIN_PASSWORD}"
 
     depends_on:
-      - mysql
-      - postgres
-      - sqlserver
-      - mongo
-      - cassandra
-      - redis
-
-    # 🧠 Descomenta estas líneas si quieres modo desarrollo con hot reload:
-    # volumes:
-    #   - .:/app
-    # command: dotnet watch run --urls=http://0.0.0.0:8080
+      - mysql-ZenDb
+      - postgres-ZenDb
+      - sqlserver-ZenDb
+      - mongo-ZenDb
+      - cassandra-ZenDb
+      - redis-ZenDb
 
   # 🐬 MySQL
-  mysql:
+  mysql-ZenDb:
     image: mysql:8.0
-    container_name: mysql
+    container_name: mysql-ZenDb
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: testdb
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ADMIN_PASSWORD}"
+      MYSQL_DATABASE: "${MYSQL_DEFAULT_DATABASE}"
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
 
   # 🐘 PostgreSQL
-  postgres:
+  postgres-ZenDb:
     image: postgres:16
-    container_name: postgres
+    container_name: postgres-ZenDb
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: testdb
+      POSTGRES_USER: "${POSTGRES_ADMIN_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DEFAULT_DATABASE}"
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   # 🏢 SQL Server
-  sqlserver:
+  sqlserver-ZenDb:
     image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: sqlserver
+    container_name: sqlserver-ZenDb
     restart: always
     environment:
-      SA_PASSWORD: "Your_password123"
+      SA_PASSWORD: "${SQLSERVER_ADMIN_PASSWORD}"
       ACCEPT_EULA: "Y"
     ports:
       - "1433:1433"
@@ -72,38 +77,44 @@ services:
       - sqlserver_data:/var/opt/mssql
 
   # 🍃 MongoDB
-  mongo:
+  mongo-ZenDb:
     image: mongo:7
-    container_name: mongo
+    container_name: mongo-ZenDb
     restart: always
     environment:
-      MONGO_INITDB_DATABASE: testdb
+      MONGO_INITDB_ROOT_USERNAME: "${MONGO_ADMIN_USER}"
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_ADMIN_PASSWORD}"
+      MONGO_INITDB_DATABASE: "${MONGO_DEFAULT_DATABASE}"
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
 
   # 🌐 Cassandra
-  cassandra:
+  cassandra-ZenDb:
     image: cassandra:5
-    container_name: cassandra
+    container_name: cassandra-ZenDb
     restart: always
+    environment:
+      CASSANDRA_AUTHENTICATOR: PasswordAuthenticator
+      CASSANDRA_SUPERUSER_USERNAME: "${CASSANDRA_ADMIN_USER}"
+      CASSANDRA_SUPERUSER_PASSWORD: "${CASSANDRA_ADMIN_PASSWORD}"
     ports:
       - "9042:9042"
     volumes:
       - cassandra_data:/var/lib/cassandra
 
   # ⚡ Redis
-  redis:
+  redis-ZenDb:
     image: redis:7
-    container_name: redis
+    container_name: redis-ZenDb
     restart: always
+    command: ["redis-server", "--requirepass", "${REDIS_ADMIN_PASSWORD}"]
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
 
-# 💾 Volúmenes persistentes para todas las bases de datos
 volumes:
   mysql_data:
   postgres_data:
