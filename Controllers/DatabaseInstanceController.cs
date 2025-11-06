@@ -72,5 +72,39 @@ public class DatabaseInstanceController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
-    } 
+    }
+    
+    [HttpPost]
+    public async Task<IActionResult> CreateDatabase([FromBody] CreateDatabaseRequestDto request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        try
+        {
+            var database = await _databaseInstanceService.CreateDatabaseInstanceAsync(request.UserId, request.EngineId);
+            
+            var response = new DatabaseInstanceResponseDto
+            {
+                InstanceId = database.InstanceId,
+                DatabaseName = database.DatabaseName,
+                DatabaseUser = database.DatabaseUser,
+                AssignedPort = database.AssignedPort,
+                ConnectionString = database.ConnectionString,
+                Status = database.Status.ToString(),
+                EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
+                CreatedAt = database.CreatedAt
+            };
+
+            return Ok(new
+            {
+                message = "Base de datos creada exitosamente",
+                data = response
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }
