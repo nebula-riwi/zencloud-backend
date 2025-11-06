@@ -63,6 +63,16 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+//Repositories
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceRepository>();
+
+//Services
+builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();
+builder.Services.AddScoped<ICredentialsGeneratorService, CredentialsGeneratorService>();
+builder.Services.AddScoped<IPlanValidationService, PlanValidationService>();
+
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -77,5 +87,17 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Endpoint raíz de verificación
+app.MapGet("/", () => Results.Json(new
+{
+    status = "OK",
+    service = "ZenCloud API",
+    environment = app.Environment.EnvironmentName,
+    timestamp = DateTime.UtcNow
+}));
+
+// Health check simple
+app.MapGet("/health", () => Results.Ok("Healthy ✅"));
 
 app.Run();
