@@ -7,7 +7,7 @@ using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services.Implementations;
 
-public class EmailService : IEmailService // Solo una vez IEmailService
+public class EmailService : IEmailService 
 {
     private readonly string _smtpServer;
     private readonly int _smtpPort;
@@ -54,8 +54,30 @@ public class EmailService : IEmailService // Solo una vez IEmailService
         }
     }
 
-    public async Task SendPasswordResetEmailAsync(string email, string token)
+    public async Task SendPasswordResetEmailAsync(string email, string resetToken)
     {
-        await Task.CompletedTask;
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_fromName, _fromEmail));
+        message.To.Add(new MailboxAddress(email, email));
+        message.Subject = "Restablecer tu contraseña - ZenCloud";
+
+        // Cargar plantilla de restablecimiento de contraseña
+        string passwordResetTemplate = File.ReadAllText("Templates/PasswordResetEmailTemplate.html");
+        string body = passwordResetTemplate
+            .Replace("[Nombre del Usuario]", email)
+            .Replace("[Enlace de Restablecimiento]", $"http://localhost:5089/Auth/reset-password?email={email}&token={resetToken}");
+
+        message.Body = new TextPart("html")
+        {
+            Text = body
+        };
+
+        using (var client = new SmtpClient())
+        {
+            await client.ConnectAsync(_smtpServer, _smtpPort, false);
+            await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+        }
     }
 }
