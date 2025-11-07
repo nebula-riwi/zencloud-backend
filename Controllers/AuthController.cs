@@ -74,4 +74,37 @@ public class AuthController : ControllerBase
 
         return Ok(new { Token = token });
     }
+
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest model)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        bool result = await _authService.RequestPasswordResetAsync(model.Email);
+
+        return Ok(new { message = "If the email exists, password reset instructions will be sent." });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest model)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        bool result = await _authService.ResetPasswordAsync(model.Email, model.Token, model.NewPassword);
+
+        if (result)
+        {
+            return Ok(new { message = "Password reset successfully." });
+        }
+        else
+        {
+            return BadRequest(new { message = "Failed to reset password. Invalid or expired token." });
+        }
+    }
 }

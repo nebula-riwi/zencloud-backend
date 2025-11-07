@@ -60,6 +60,7 @@ public class AuthService : IAuthService
 
         _dbContext.Users.Add(newUser);
         await _dbContext.SaveChangesAsync();
+        
 
         await _emailService.SendVerificationEmailAsync(newUser.Email, emailVerificationToken);
         return true; 
@@ -153,11 +154,54 @@ public class AuthService : IAuthService
 
     public async Task<bool> RequestPasswordResetAsync(string email)
     {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (user == null)
+        {
+            return true;
+        }
+
+        string resetToken = _emailVerificationService.GenerateVerificationToken(email);
+        
+        user.PasswordResetToken = resetToken;
+        user.PasswordResetExpiry = DateTime.UtcNow.AddHours(1);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+
+        await _emailService.SendPasswordResetEmailAsync(email, resetToken);
+        
+        _logger.LogInformation($"Solicitud de restablecimiento de contraseña para: {email}");
         return true;
     }
-
+    
     public async Task<bool> ResetPasswordAsync(string email, string token, string newPassword)
     {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (user == null)
+        {
+            return false;
+        }
+
+        if (user.PasswordResetToken != token || user.PasswordResetExpiry == null || user.PasswordResetExpiry < DateTime.UtcNow)
+        {
+            return false;
+        }
+
+        var (isValid, tokenEmail) = _emailVerificationService.ValidateVerificationToken(token);
+        if (!isValid || tokenEmail != email)
+        {
+            return false;
+        }
+
+        string hashedPassword = _passwordHasher.HashPassword(newPassword);
+        user.PasswordHash = hashedPassword;
+        user.PasswordResetToken = null;
+        user.PasswordResetExpiry = null;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation($"Contraseña restablecida exitosamente para: {email}");
         return true;
     }
 }

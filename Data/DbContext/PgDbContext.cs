@@ -65,7 +65,8 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
 
             entity.Property(de => de.EngineName)
                 .IsRequired()
-                .HasMaxLength(100);
+                .HasMaxLength(100)
+                .HasConversion<string>();
 
             entity.Property(de => de.DefaultPort)
                 .IsRequired();
@@ -109,7 +110,8 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
 
             entity.Property(di => di.Status)
                 .IsRequired()
-                .HasMaxLength(50);
+                .HasMaxLength(50)
+                .HasConversion<int>();
 
             entity.Property(di => di.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP");
