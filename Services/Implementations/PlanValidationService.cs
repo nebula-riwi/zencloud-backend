@@ -10,7 +10,7 @@ public class PlanValidationService : IPlanValidationService
     private readonly IDatabaseInstanceRepository _databaseRepository;
     private readonly PgDbContext _context;
 
-    PlanValidationService(
+    public PlanValidationService(
         IDatabaseInstanceRepository databaseRepository, 
         PgDbContext dbContext)
     {

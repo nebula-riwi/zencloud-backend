@@ -42,7 +42,7 @@ public class DatabaseInstanceController : ControllerBase
         }
     }
 
-    [HttpGet("{InstanceId}")]
+    [HttpGet("{instanceId}")]
     public async Task<IActionResult> GetDatabaseById(Guid instanceId)
     {
         try
@@ -101,6 +101,21 @@ public class DatabaseInstanceController : ControllerBase
                 message = "Base de datos creada exitosamente",
                 data = response
             });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+    
+    
+    [HttpDelete("{instanceId}")]
+    public async Task<IActionResult> DeleteDatabase(Guid instanceId, [FromQuery] Guid userId)
+    {
+        try
+        {
+            await _databaseInstanceService.DeleteDatabaseInstanceAsync(instanceId, userId);
+            return Ok(new { message = "Base de datos eliminada exitosamente" });
         }
         catch (Exception ex)
         {
