@@ -65,7 +65,7 @@ public class EmailService : IEmailService
         string passwordResetTemplate = File.ReadAllText("Templates/PasswordResetEmailTemplate.html");
         string body = passwordResetTemplate
             .Replace("[Nombre del Usuario]", email)
-            .Replace("[Enlace de Restablecimiento]", $"http://localhost:5089/Auth/reset-password?email={email}&token={resetToken}");
+            .Replace("[Enlace de Restablecimiento]", $"https://service.nebula.andrescortes.dev/Auth/reset-password?email={email}&token={resetToken}");
 
         message.Body = new TextPart("html")
         {
