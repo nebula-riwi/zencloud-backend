@@ -79,6 +79,7 @@ builder.Services.AddScoped<IMySQLConnectionManager, MySQLConnectionManager>();
 builder.Services.AddScoped<IQueryExecutor, MySQLQueryExecutor>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+builder.Services.AddScoped<IDatabaseEngineService, DatabaseEngineService>();
 
 var app = builder.Build();
 

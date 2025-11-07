@@ -11,6 +11,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IRepository<DatabaseEngine> _engineRepository;
     private readonly ICredentialsGeneratorService _credentialsGenerator;
     private readonly IPlanValidationService _planValidationService;
+    private readonly IDatabaseEngineService _databaseEngineService;
     private readonly IEmailService _emailService;
 
     public DatabaseInstanceService(
@@ -18,6 +19,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         IRepository<User> userRepository,
         IRepository<DatabaseEngine> engineRepository,
         ICredentialsGeneratorService credentialsGenerator,
+        IDatabaseEngineService databaseEngineService,
         IPlanValidationService planValidationService,
         IEmailService emailService)
     {
@@ -26,6 +28,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         _engineRepository = engineRepository;
         _credentialsGenerator = credentialsGenerator;
         _planValidationService = planValidationService;
+        _databaseEngineService = databaseEngineService;
         _emailService = emailService;
     }
 
@@ -68,6 +71,13 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         var password = _credentialsGenerator.GeneratePassword();
 
         var passwordHash = _credentialsGenerator.HashPassword(password);
+        
+        await _databaseEngineService.CreatePhysicalDatabaseAsync(
+            engine.EngineName.ToString(),
+            databaseName,
+            username,
+            password
+        );
 
         var databaseInstance = new DatabaseInstance
         {
@@ -133,6 +143,13 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         {
             throw new Exception("No tienes permisos para eliminar esta base de datos");
         }
+        
+        await _databaseEngineService.DeletePhysicalDatabaseAsync(
+            instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado"),
+            instance.DatabaseName,
+            instance.DatabaseUser
+        );
+        
         instance.Status = DatabaseInstanceStatus.Deleted;
         instance.DeletedAt = DateTime.UtcNow;
         
