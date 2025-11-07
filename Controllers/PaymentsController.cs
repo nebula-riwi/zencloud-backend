@@ -44,9 +44,17 @@ namespace ZenCloud.Controllers
         {
             Console.WriteLine("📬 Webhook recibido:");
             Console.WriteLine(data.ToString());
-        
-            await _mpService.ProcesarWebhookAsync(data);
-            return Ok();
+
+            try
+            {
+                await _mpService.ProcesarWebhookAsync(data);
+                return Ok(new { message = "Webhook recibido correctamente ✅" });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error procesando webhook: {ex.Message}");
+                return StatusCode(500, new { error = ex.Message });
+            }
         }
     }
 }
