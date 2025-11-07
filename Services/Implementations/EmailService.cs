@@ -38,7 +38,7 @@ public class EmailService : IEmailService
 
         string body = _verificationEmailTemplate
             .Replace("[Nombre del Usuario]", email)
-            .Replace("[Enlace de Verificación]", $"http://localhost:5089/Auth/verify?email={email}&token={verificationToken}");
+            .Replace("[Enlace de Verificación]", $"https://service.nebula.andrescortes.dev/Auth/verify?email={email}&token={verificationToken}");
 
         message.Body = new TextPart("html")
         {
