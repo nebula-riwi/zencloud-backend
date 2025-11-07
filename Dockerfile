@@ -20,4 +20,5 @@ RUN dotnet publish "./ZenCloud.csproj" -c Release -o /app/publish /p:UseAppHost=
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+COPY Templates ./Templates
 ENTRYPOINT ["dotnet", "ZenCloud.dll"]
