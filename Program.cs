@@ -64,6 +64,8 @@ builder.Services.AddAuthorization();
 //Repositories
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+
 
 //Services
 builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();

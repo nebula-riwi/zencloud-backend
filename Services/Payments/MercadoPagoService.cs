@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
+using ZenCloud.Services.Implementations;
+using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services
 {
@@ -11,11 +13,14 @@ namespace ZenCloud.Services
         private readonly HttpClient _httpClient;
         private readonly string _accessToken;
         private readonly IPaymentRepository _paymentRepository;
-
-        public MercadoPagoService(IConfiguration configuration, IPaymentRepository paymentRepository)
+        private readonly IEmailService _emailService;
+        private readonly IUserRepository _userRepository;
+        public MercadoPagoService(IConfiguration configuration, IPaymentRepository paymentRepository, IEmailService emailService,IUserRepository  userRepository)
         {
             _accessToken = configuration["MercadoPago:AccessToken"]!;
             _paymentRepository = paymentRepository;
+            _userRepository = userRepository;
+            _emailService = emailService;
 
             _httpClient = new HttpClient
             {
@@ -88,30 +93,58 @@ namespace ZenCloud.Services
         public async Task ProcesarWebhookAsync(JsonElement data)
         {
             if (!data.TryGetProperty("type", out var type) || type.GetString() != "payment")
+            {
+                Console.WriteLine("ℹ️ Webhook ignorado: no es tipo 'payment'.");
                 return;
+            }
 
             var paymentId = data.GetProperty("data").GetProperty("id").GetInt64();
+            Console.WriteLine($"🔍 Consultando pago {paymentId} en Mercado Pago...");
 
             var response = await _httpClient.GetAsync($"v1/payments/{paymentId}");
             response.EnsureSuccessStatusCode();
 
-            var paymentData = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+            var body = await response.Content.ReadAsStringAsync();
+            var paymentData = JsonDocument.Parse(body).RootElement;
+
             var status = paymentData.GetProperty("status").GetString() ?? "pending";
             var mpPaymentId = paymentData.GetProperty("id").ToString();
+            var payerEmail = paymentData.GetProperty("payer").GetProperty("email").GetString();
+
+            Console.WriteLine($"💰 Estado: {status} | ID: {mpPaymentId} | Email: {payerEmail}");
 
             var existingPayment = await _paymentRepository.GetByMercadoPagoIdAsync(mpPaymentId);
-            if (existingPayment != null)
+            if (existingPayment == null)
             {
-                existingPayment.PaymentStatus = status switch
-                {
-                    "approved" => PaymentStatusType.Approved,
-                    "rejected" => PaymentStatusType.Rejected,
-                    _ => PaymentStatusType.Pending
-                };
+                Console.WriteLine("⚠️ No se encontró el pago en la base de datos.");
+                return;
+            }
 
-                existingPayment.TransactionDate = DateTime.UtcNow;
-                await _paymentRepository.UpdateAsync(existingPayment);
+            existingPayment.PaymentStatus = status switch
+            {
+                "approved" => PaymentStatusType.Approved,
+                "rejected" => PaymentStatusType.Rejected,
+                _ => PaymentStatusType.Pending
+            };
+            existingPayment.TransactionDate = DateTime.UtcNow;
+
+            await _paymentRepository.UpdateAsync(existingPayment);
+
+            // Enviar correo si el pago fue aprobado
+            var user = await _userRepository.GetByIdAsync(existingPayment.UserId);
+
+            if (user != null && status == "approved")
+            {
+                await _emailService.SendPaymentConfirmationEmailAsync(
+                    user.Email,
+                    user.FullName,
+                    existingPayment.PaymentMethod,
+                    existingPayment.Amount,
+                    "Aprobado",
+                    existingPayment.TransactionDate
+                );
             }
         }
+
     }
 }

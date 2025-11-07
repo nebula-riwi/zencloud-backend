@@ -11,19 +11,22 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IRepository<DatabaseEngine> _engineRepository;
     private readonly ICredentialsGeneratorService _credentialsGenerator;
     private readonly IPlanValidationService _planValidationService;
+    private readonly IEmailService _emailService;
 
     public DatabaseInstanceService(
         IDatabaseInstanceRepository databaseRepository,
         IRepository<User> userRepository,
         IRepository<DatabaseEngine> engineRepository,
         ICredentialsGeneratorService credentialsGenerator,
-        IPlanValidationService planValidationService)
+        IPlanValidationService planValidationService,
+        IEmailService emailService)
     {
         _databaseRepository = databaseRepository;
         _userRepository = userRepository;
         _engineRepository = engineRepository;
         _credentialsGenerator = credentialsGenerator;
         _planValidationService = planValidationService;
+        _emailService = emailService;
     }
 
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
@@ -83,6 +86,19 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         };
         
         await _databaseRepository.CreateAsync(databaseInstance);
+        
+        // 📧 Enviar correo con credenciales
+        await _emailService.SendDatabaseCredentialsEmailAsync(
+            user.Email,
+            user.FullName,
+            engine.EngineName.ToString(),
+            databaseName,
+            username,
+            password,
+            databaseInstance.ServerIpAddress,
+            databaseInstance.AssignedPort
+        );
+        
         return databaseInstance;
     }
 
