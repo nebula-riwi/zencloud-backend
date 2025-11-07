@@ -12,8 +12,8 @@ using ZenCloud.Data.DbContext;
 namespace ZenCloud.Migrations
 {
     [DbContext(typeof(PgDbContext))]
-    [Migration("20251106081127_NombreDeLaMigracion")]
-    partial class NombreDeLaMigracion
+    [Migration("20251106235611_ConvertStatusToInt")]
+    partial class ConvertStatusToInt
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

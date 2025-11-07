@@ -61,8 +61,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-var app = builder.Build();
-
 //Repositories
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceRepository>();
@@ -71,6 +69,8 @@ builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceReposito
 builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();
 builder.Services.AddScoped<ICredentialsGeneratorService, CredentialsGeneratorService>();
 builder.Services.AddScoped<IPlanValidationService, PlanValidationService>();
+
+var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
