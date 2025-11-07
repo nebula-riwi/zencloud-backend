@@ -18,6 +18,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// 🔥 AGREGAR ESTA LÍNEA (HttpContextAccessor para AuditService)
+builder.Services.AddHttpContextAccessor();
+
 // Repositories (Data Access)
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
@@ -71,6 +74,11 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();
 builder.Services.AddScoped<ICredentialsGeneratorService, CredentialsGeneratorService>();
 builder.Services.AddScoped<IPlanValidationService, PlanValidationService>();
+builder.Services.AddScoped<IDatabaseManagementService, DatabaseManagementService>();
+builder.Services.AddScoped<IMySQLConnectionManager, MySQLConnectionManager>();
+builder.Services.AddScoped<IQueryExecutor, MySQLQueryExecutor>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 
 var app = builder.Build();
 
