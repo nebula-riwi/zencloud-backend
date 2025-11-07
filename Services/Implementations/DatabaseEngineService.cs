@@ -1,4 +1,4 @@
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services.Implementations;
@@ -44,9 +44,15 @@ public class DatabaseEngineService : IDatabaseEngineService
 
     private async Task CreateMySqlDatabaseAsync(string databaseName, string username, string password)
     {
-        var connectionString = _configuration.GetConnectionString("MySql");
+        var host = _configuration["MYSQL_HOST"];
+        var port = _configuration["MYSQL_PORT"];
+        var adminUser = _configuration["MYSQL_ADMIN_USER"];
+        var adminPassword = _configuration["MYSQL_ADMIN_PASSWORD"];
         
-        using var connection = new MySqlConnection(connectionString);
+        var adminConnectionString = 
+            $"Server={host};Port={port};User={adminUser};Password={adminPassword};Database=mysql";
+        
+        using var connection = new MySqlConnection(adminConnectionString);
         await connection.OpenAsync();
         
         var createDbCommand = new MySqlCommand($"CREATE DATABASE IF NOT EXISTS`{databaseName}`;", connection);
@@ -57,7 +63,7 @@ public class DatabaseEngineService : IDatabaseEngineService
     {
         var connectionString = _configuration.GetConnectionString("MySQL");
         
-        using var connection = new MySqlConnection(connectionString);
+        await using var connection = new MySqlConnection(connectionString);
         await connection.OpenAsync();
 
         // 1. Eliminar la base de datos
