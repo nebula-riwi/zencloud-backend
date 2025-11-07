@@ -69,6 +69,7 @@ builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceReposito
 builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();
 builder.Services.AddScoped<ICredentialsGeneratorService, CredentialsGeneratorService>();
 builder.Services.AddScoped<IPlanValidationService, PlanValidationService>();
+builder.Services.AddScoped<IDatabaseEngineService, DatabaseEngineService>();
 
 var app = builder.Build();
 

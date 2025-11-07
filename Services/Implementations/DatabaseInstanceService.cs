@@ -11,19 +11,22 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IRepository<DatabaseEngine> _engineRepository;
     private readonly ICredentialsGeneratorService _credentialsGenerator;
     private readonly IPlanValidationService _planValidationService;
+    private readonly IDatabaseEngineService _databaseEngineService;
 
     public DatabaseInstanceService(
         IDatabaseInstanceRepository databaseRepository,
         IRepository<User> userRepository,
         IRepository<DatabaseEngine> engineRepository,
         ICredentialsGeneratorService credentialsGenerator,
-        IPlanValidationService planValidationService)
+        IPlanValidationService planValidationService,
+        IDatabaseEngineService databaseEngineService)
     {
         _databaseRepository = databaseRepository;
         _userRepository = userRepository;
         _engineRepository = engineRepository;
         _credentialsGenerator = credentialsGenerator;
         _planValidationService = planValidationService;
+        _databaseEngineService = databaseEngineService;
     }
 
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
@@ -65,6 +68,13 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         var password = _credentialsGenerator.GeneratePassword();
 
         var passwordHash = _credentialsGenerator.HashPassword(password);
+        
+        await _databaseEngineService.CreatePhysicalDatabaseAsync(
+            engine.EngineName.ToString(),
+            databaseName,
+            username,
+            password
+        );
 
         var databaseInstance = new DatabaseInstance
         {
@@ -117,6 +127,13 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         {
             throw new Exception("No tienes permisos para eliminar esta base de datos");
         }
+        
+        await _databaseEngineService.DeletePhysicalDatabaseAsync(
+            instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado"),
+            instance.DatabaseName,
+            instance.DatabaseUser
+        );
+        
         instance.Status = DatabaseInstanceStatus.Deleted;
         instance.DeletedAt = DateTime.UtcNow;
         
