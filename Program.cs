@@ -18,6 +18,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// 🔥 AGREGAR ESTA LÍNEA (HttpContextAccessor para AuditService)
+builder.Services.AddHttpContextAccessor();
+
 // Repositories (Data Access)
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 
@@ -64,25 +67,31 @@ builder.Services.AddAuthorization();
 //Repositories
 builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddScoped<IDatabaseInstanceRepository, DatabaseInstanceRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+
 
 //Services
 builder.Services.AddScoped<IDatabaseInstanceService, DatabaseInstanceService>();
 builder.Services.AddScoped<ICredentialsGeneratorService, CredentialsGeneratorService>();
 builder.Services.AddScoped<IPlanValidationService, PlanValidationService>();
+builder.Services.AddScoped<IDatabaseManagementService, DatabaseManagementService>();
+builder.Services.AddScoped<IMySQLConnectionManager, MySQLConnectionManager>();
+builder.Services.AddScoped<IQueryExecutor, MySQLQueryExecutor>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 builder.Services.AddScoped<IDatabaseEngineService, DatabaseEngineService>();
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Your API V1");
-        options.RoutePrefix = "swagger";
-    });
-}
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Your API V1");
+    options.RoutePrefix = "swagger";
+});
+
 
 app.UseHttpsRedirection();
 app.UseAuthentication();

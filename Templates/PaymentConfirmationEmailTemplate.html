@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmación de Pago - ZenCloud</title>
+    <style>
+        body, table, td, a {
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        table, td {
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+        }
+        img {
+            -ms-interpolation-mode: bicubic;
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+            color: #343a40;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 30px auto;
+            background: #fff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #FF8C00 0%, #FF6500 100%);
+            color: #fff;
+            text-align: center;
+            padding: 40px 30px;
+            position: relative;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2.3em;
+            font-weight: 300;
+        }
+
+        .header p {
+            margin-top: 10px;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .content p {
+            margin-bottom: 20px;
+            font-size: 1.05em;
+        }
+
+        .details {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+
+        .details li {
+            margin-bottom: 8px;
+            font-size: 1em;
+        }
+
+        .icon-section {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+
+        .icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #FF8C00 0%, #FF6500 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 2.5em;
+            box-shadow: 0 4px 10px rgba(255, 140, 0, 0.3);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 25px 30px;
+            background-color: #f8f9fa;
+            color: #6c757d;
+            font-size: 0.9em;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .footer a {
+            color: #FF8C00;
+            text-decoration: none;
+        }
+
+        @media screen and (max-width: 600px) {
+            .container {
+                width: 100% !important;
+                border-radius: 0;
+            }
+            .header, .content, .footer {
+                padding: 25px 20px;
+            }
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+<center>
+    <div class="container">
+        <div class="header">
+            <h1>¡Gracias por tu pago, [Nombre del Usuario]!</h1>
+            <p>Tu suscripción está activa</p>
+        </div>
+
+        <div class="content">
+            <div class="icon-section">
+                <div class="icon">💳</div>
+            </div>
+
+            <p>Hemos recibido correctamente tu pago en <strong>ZenCloud</strong>. Aquí tienes los detalles de la transacción:</p>
+
+            <ul class="details">
+                <li><strong>Tipo de suscripción:</strong> [Tipo de Pago]</li>
+                <li><strong>Monto:</strong> [Monto]</li>
+                <li><strong>Estado:</strong> [Estado]</li>
+                <li><strong>Fecha:</strong> [Fecha]</li>
+            </ul>
+
+            <p>Gracias por confiar en nosotros. Si tienes alguna pregunta, no dudes en contactarnos en <a href="mailto:support@zencloud.com">support@zencloud.com</a>.</p>
+        </div>
+
+        <div class="footer">
+            <p>Este correo fue enviado por ZenCloud.</p>
+            <p>&copy; 2025 ZenCloud. Todos los derechos reservados.</p>
+        </div>
+    </div>
+</center>
+</body>
+</html>

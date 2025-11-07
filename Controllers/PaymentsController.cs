@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -30,7 +31,7 @@ namespace ZenCloud.Controllers
                 request.PaymentType,
                 successUrl: "https://nebula.andrescortes.dev/success",
                 failureUrl: "https://nebula.andrescortes.dev/failure",
-                notificationUrl: "http://localhost:5089/api/payments/webhook"
+                notificationUrl: "https://service.nebula.andrescortes.dev/api/payments/webhook"
             );
 
             return Content(result, "application/json");
@@ -43,9 +44,17 @@ namespace ZenCloud.Controllers
         {
             Console.WriteLine("📬 Webhook recibido:");
             Console.WriteLine(data.ToString());
-        
-            await _mpService.ProcesarWebhookAsync(data);
-            return Ok();
+
+            try
+            {
+                await _mpService.ProcesarWebhookAsync(data);
+                return Ok(new { message = "Webhook recibido correctamente ✅" });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error procesando webhook: {ex.Message}");
+                return StatusCode(500, new { error = ex.Message });
+            }
         }
     }
 }
