@@ -133,7 +133,8 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     
     public async Task DeleteDatabaseInstanceAsync(Guid instanceId, Guid userId)
     {
-        var instance = await _databaseRepository.GetByIdAsync(instanceId);
+        var instance = await _databaseRepository.GetByIdWithEngineAsync(instanceId);
+        
         if (instance == null)
         {
             throw new Exception("Base de datos no encontrada");
@@ -143,6 +144,19 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         {
             throw new Exception("No tienes permisos para eliminar esta base de datos");
         }
+
+        if (instance.Status != DatabaseInstanceStatus.Active)
+        {
+            throw new Exception("La base de datos se encuentra inactiva");
+        }
+        
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null || !user.IsActive)
+            throw new Exception("Usuario no válido o inactivo");
+        
+        var engineName = instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado");
+        var databaseName = instance.DatabaseName;
+        var deletionDate = DateTime.UtcNow; // Usaremos esta fecha para el correo
         
         await _databaseEngineService.DeletePhysicalDatabaseAsync(
             instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado"),
@@ -152,6 +166,16 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         
         instance.Status = DatabaseInstanceStatus.Deleted;
         instance.DeletedAt = DateTime.UtcNow;
+        
+        // 2. Llamada al servicio de correo electrónico después de la eliminación exitosa
+        // (Asumiendo que el método SendDatabaseDeletionEmailAsync está en _emailService)
+        await _emailService.SendDatabaseDeletionEmailAsync(
+            toEmail: user.Email, // Asume que el objeto user tiene una propiedad Email
+            userName: user.FullName, // Asume que el objeto user tiene el nombre
+            databaseName: databaseName,
+            engineName: engineName,
+            deletionDate: deletionDate
+        );
         
         await _databaseRepository.UpdateAsync(instance);
     }

@@ -37,4 +37,12 @@ public class DatabaseInstanceRepository : Repository<DatabaseInstance>, IDatabas
             .AnyAsync(db => db.DatabaseName == databaseName 
                             && db.Status == DatabaseInstanceStatus.Active);
     }
+    
+    //Gets instance by id along with engine
+    public async Task<DatabaseInstance?> GetByIdWithEngineAsync(Guid instanceId)
+    {
+        return await _dbSet
+            .Include(instance => instance.Engine)
+            .FirstOrDefaultAsync(instance => instance.InstanceId == instanceId);
+    }
 }
