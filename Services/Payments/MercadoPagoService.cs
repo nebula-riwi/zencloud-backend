@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
-using ZenCloud.Services.Implementations;
 using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services
@@ -15,12 +14,23 @@ namespace ZenCloud.Services
         private readonly IPaymentRepository _paymentRepository;
         private readonly IEmailService _emailService;
         private readonly IUserRepository _userRepository;
-        public MercadoPagoService(IConfiguration configuration, IPaymentRepository paymentRepository, IEmailService emailService,IUserRepository  userRepository)
+        private readonly ISubscriptionRepository _subscriptionRepository;
+        private readonly IPlanRepository _planRepository;
+
+        public MercadoPagoService(
+            IConfiguration configuration, 
+            IPaymentRepository paymentRepository, 
+            IEmailService emailService,
+            IUserRepository userRepository,
+            ISubscriptionRepository subscriptionRepository,
+            IPlanRepository planRepository)
         {
             _accessToken = configuration["MercadoPago:AccessToken"]!;
             _paymentRepository = paymentRepository;
             _userRepository = userRepository;
             _emailService = emailService;
+            _subscriptionRepository = subscriptionRepository;
+            _planRepository = planRepository;
 
             _httpClient = new HttpClient
             {
@@ -30,27 +40,40 @@ namespace ZenCloud.Services
                 new AuthenticationHeaderValue("Bearer", _accessToken);
         }
 
-        // ✅ Crear preferencia de pago en Mercado Pago
-        public async Task<string> CrearPreferenciaAsync(Guid userId, decimal amount, string paymentType, string successUrl, string failureUrl, string notificationUrl)
+        // ✅ Crear preferencia de pago para SUSCRIPCIÓN (CORREGIDO)
+        public async Task<string> CreateSubscriptionPreferenceAsync(Guid userId, int planId, string successUrl, string failureUrl, string notificationUrl)
         {
+            // Obtener el plan
+            var plan = await _planRepository.GetByIdAsync(planId);
+            if (plan == null)
+                throw new ArgumentException("Plan no encontrado");
+
             var body = new
             {
                 items = new[]
                 {
                     new {
-                        title = $"Pago {paymentType}",
+                        title = $"Suscripción {plan.PlanName} - ZenCloud",
+                        description = $"Plan {plan.PlanName} - {plan.MaxDatabasesPerEngine} bases de datos por motor",
                         quantity = 1,
                         currency_id = "COP",
-                        unit_price = amount
+                        unit_price = plan.PriceInCOP
                     }
                 },
                 back_urls = new
                 {
                     success = successUrl,
-                    failure = failureUrl
+                    failure = failureUrl,
+                    pending = failureUrl
                 },
                 auto_return = "approved",
-                notification_url = notificationUrl
+                notification_url = notificationUrl,
+                metadata = new
+                {
+                    user_id = userId.ToString(),
+                    plan_id = planId,
+                    type = "subscription"
+                }
             };
 
             var json = JsonSerializer.Serialize(body);
@@ -68,83 +91,248 @@ namespace ZenCloud.Services
             
             var jsonDoc = JsonDocument.Parse(responseBody).RootElement;
             var initPoint = jsonDoc.GetProperty("init_point").GetString()!;
-            var prefId = jsonDoc.GetProperty("id").GetString()!;
+            var preferenceId = jsonDoc.GetProperty("id").GetString()!;
 
-            // ✅ Guardar el pago en la BD como pendiente
+            // ✅ Guardar el pago en la BD con PREFERENCE ID (no payment ID)
             var payment = new Payment
             {
                 PaymentId = Guid.NewGuid(),
                 UserId = userId,
-                Amount = amount,
+                Amount = plan.PriceInCOP,
                 Currency = "COP",
                 PaymentStatus = PaymentStatusType.Pending,
-                PaymentMethod = paymentType,
+                PaymentMethod = "subscription",
                 TransactionDate = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow,
-                MercadoPagoPaymentId = prefId // ID de la preferencia
+                MercadoPagoPaymentId = preferenceId // Este es el PREFERENCE ID
             };
 
             await _paymentRepository.AddAsync(payment);
 
-            return JsonSerializer.Serialize(new { init_point = initPoint });
+            Console.WriteLine($"✅ Preference creada: {preferenceId}");
+            Console.WriteLine($"✅ Payment guardado en BD con MercadoPagoPaymentId: {preferenceId}");
+
+            return initPoint;
         }
 
-        // ✅ Procesar Webhook de Mercado Pago
-        public async Task ProcesarWebhookAsync(JsonElement data)
+        // ✅ Procesar Webhook de Mercado Pago (CORREGIDO)
+        public async Task ProcessWebhookAsync(JsonElement data)
         {
-            if (!data.TryGetProperty("type", out var type) || type.GetString() != "payment")
+            Console.WriteLine("🔍 Analizando webhook...");
+            
+            if (!data.TryGetProperty("topic", out var topic) || topic.GetString() != "payment")
             {
-                Console.WriteLine("ℹ️ Webhook ignorado: no es tipo 'payment'.");
+                Console.WriteLine("ℹ️ Webhook ignorado: no es topic 'payment'.");
                 return;
             }
 
-            var paymentId = data.GetProperty("data").GetProperty("id").GetInt64();
+            // Leer paymentId del webhook
+            if (!data.TryGetProperty("resource", out var resource) || string.IsNullOrEmpty(resource.GetString()))
+            {
+                Console.WriteLine("❌ Resource no encontrado en webhook");
+                return;
+            }
+
+            var paymentIdString = resource.GetString()!;
+            Console.WriteLine($"🔍 Payment ID del webhook: {paymentIdString}");
+
+            if (!long.TryParse(paymentIdString, out var paymentId))
+            {
+                Console.WriteLine($"❌ Payment ID inválido: {paymentIdString}");
+                return;
+            }
+
             Console.WriteLine($"🔍 Consultando pago {paymentId} en Mercado Pago...");
 
             var response = await _httpClient.GetAsync($"v1/payments/{paymentId}");
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"❌ Error consultando pago: {response.StatusCode}");
+                return;
+            }
 
             var body = await response.Content.ReadAsStringAsync();
             var paymentData = JsonDocument.Parse(body).RootElement;
 
-            var status = paymentData.GetProperty("status").GetString() ?? "pending";
-            var mpPaymentId = paymentData.GetProperty("id").ToString();
-            var payerEmail = paymentData.GetProperty("payer").GetProperty("email").GetString();
+            // Leer datos del pago
+            string mpPaymentId = paymentData.GetProperty("id").ValueKind switch
+            {
+                JsonValueKind.Number => paymentData.GetProperty("id").GetInt64().ToString(),
+                JsonValueKind.String => paymentData.GetProperty("id").GetString()!,
+                _ => paymentId.ToString()
+            };
 
-            Console.WriteLine($"💰 Estado: {status} | ID: {mpPaymentId} | Email: {payerEmail}");
+            string status = paymentData.TryGetProperty("status", out var s) ? s.GetString() ?? "pending" : "pending";
 
-            var existingPayment = await _paymentRepository.GetByMercadoPagoIdAsync(mpPaymentId);
-            if (existingPayment == null)
+            // Leer metadata para obtener plan_id y user_id
+            Guid userId = Guid.Empty;
+            int planId = 1; // Default Free plan
+
+            if (paymentData.TryGetProperty("metadata", out var metadata))
+            {
+                if (metadata.TryGetProperty("user_id", out var userIdProp) && 
+                    Guid.TryParse(userIdProp.GetString(), out var parsedUserId))
+                {
+                    userId = parsedUserId;
+                }
+
+                if (metadata.TryGetProperty("plan_id", out var planIdProp))
+                {
+                    planId = planIdProp.GetInt32();
+                }
+            }
+
+            Console.WriteLine($"💰 Estado: {status} | Payment ID: {mpPaymentId} | User: {userId} | Plan: {planId}");
+
+            // ✅ BUSCAR POR PREFERENCE ID
+            var payment = await FindPaymentByPreferenceIdAsync(mpPaymentId);
+            
+            if (payment == null)
             {
                 Console.WriteLine("⚠️ No se encontró el pago en la base de datos.");
+                Console.WriteLine($"ℹ️ Buscando payment con preference_id que corresponda al payment_id: {mpPaymentId}");
                 return;
             }
 
-            existingPayment.PaymentStatus = status switch
+            // Actualizar estado del pago
+            payment.PaymentStatus = status switch
             {
                 "approved" => PaymentStatusType.Approved,
                 "rejected" => PaymentStatusType.Rejected,
                 _ => PaymentStatusType.Pending
             };
-            existingPayment.TransactionDate = DateTime.UtcNow;
+            payment.TransactionDate = DateTime.UtcNow;
+            // Guardar también el payment ID real de Mercado Pago
+            payment.MercadoPagoPaymentId = mpPaymentId;
 
-            await _paymentRepository.UpdateAsync(existingPayment);
+            await _paymentRepository.UpdateAsync(payment);
 
-            // Enviar correo si el pago fue aprobado
-            var user = await _userRepository.GetByIdAsync(existingPayment.UserId);
+            // Si el pago fue aprobado, actualizar suscripción y enviar correos
+            if (status == "approved")
+            {
+                await ProcessApprovedPaymentAsync(payment, planId, userId);
+            }
+        }
 
-            if (user != null && status == "approved")
+        // ✅ Método para buscar payment por preference_id
+        private async Task<Payment?> FindPaymentByPreferenceIdAsync(string mercadoPagoPaymentId)
+        {
+            // Primero intentamos buscar directamente por el ID (por si ya fue actualizado)
+            var payment = await _paymentRepository.GetByMercadoPagoIdAsync(mercadoPagoPaymentId);
+            if (payment != null)
+            {
+                return payment;
+            }
+
+            // Si no se encuentra
+            // Buscar todos los pagos pendientes y verificar
+            var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
+            
+            foreach (var p in pendingPayments)
+            {
+
+                if (p.PaymentStatus == PaymentStatusType.Pending)
+                {
+                    return p;
+                }
+            }
+
+            return null;
+        }
+
+        private async Task ProcessApprovedPaymentAsync(Payment payment, int planId, Guid userId)
+        {
+            var user = await _userRepository.GetByIdAsync(userId);
+            if (user == null)
+            {
+                Console.WriteLine($"❌ Usuario no encontrado: {userId}");
+                return;
+            }
+
+            var plan = await _planRepository.GetByIdAsync(planId);
+            if (plan == null)
+            {
+                Console.WriteLine($"❌ Plan no encontrado: {planId}");
+                return;
+            }
+
+            Console.WriteLine($"✅ Procesando pago aprobado para usuario: {user.Email}, plan: {plan.PlanName}");
+
+            // Buscar suscripción activa del usuario
+            var existingSubscription = await _subscriptionRepository.GetActiveByUserIdAsync(userId);
+            Subscription subscription;
+            
+            if (existingSubscription != null)
+            {
+                // Actualizar suscripción existente
+                existingSubscription.PlanId = plan.PlanId;
+                existingSubscription.StartDate = DateTime.UtcNow;
+                existingSubscription.EndDate = DateTime.UtcNow.AddDays(plan.DurationInDays);
+                existingSubscription.PaymentStatus = PaymentStatus.Paid;
+                existingSubscription.UpdatedAt = DateTime.UtcNow;
+
+                await _subscriptionRepository.UpdateAsync(existingSubscription);
+                subscription = existingSubscription; // Guardar referencia
+                Console.WriteLine($"✅ Suscripción actualizada: {existingSubscription.SubscriptionId}");
+            }
+            else
+            {
+                // Crear nueva suscripción
+                subscription = new Subscription
+                {
+                    SubscriptionId = Guid.NewGuid(),
+                    UserId = userId,
+                    PlanId = plan.PlanId,
+                    StartDate = DateTime.UtcNow,
+                    EndDate = DateTime.UtcNow.AddDays(plan.DurationInDays),
+                    IsActive = true,
+                    PaymentStatus = PaymentStatus.Paid,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await _subscriptionRepository.AddAsync(subscription);
+                Console.WriteLine($"✅ Nueva suscripción creada: {subscription.SubscriptionId}");
+            }
+
+            // Vincular el pago con la suscripción
+            payment.SubscriptionId = subscription.SubscriptionId;
+            await _paymentRepository.UpdateAsync(payment);
+            Console.WriteLine($"✅ Pago vinculado con suscripción: {payment.PaymentId} -> {subscription.SubscriptionId}");
+
+            // Enviar correo de confirmación de pago
+            try
             {
                 await _emailService.SendPaymentConfirmationEmailAsync(
                     user.Email,
                     user.FullName,
-                    existingPayment.PaymentMethod,
-                    existingPayment.Amount,
+                    plan.PlanName.ToString(),
+                    payment.Amount,
                     "Aprobado",
-                    existingPayment.TransactionDate
+                    payment.TransactionDate
                 );
+                Console.WriteLine($"✅ Email de confirmación enviado a: {user.Email}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error enviando email: {ex.Message}");
+            }
+
+            // Enviar correo de cambio de plan
+            try
+            {
+                await _emailService.SendPlanChangeEmailAsync(
+                    user.Email,
+                    user.FullName,
+                    plan.PlanName.ToString(),
+                    payment.TransactionDate
+                );
+                Console.WriteLine($"✅ Email de cambio de plan enviado a: {user.Email}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error enviando email de cambio de plan: {ex.Message}");
             }
         }
-
     }
 }

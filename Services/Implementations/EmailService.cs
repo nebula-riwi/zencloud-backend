@@ -3,6 +3,7 @@ using MimeKit;
 using System.Threading.Tasks;
 using ZenCloud.Data.Repositories.Interfaces;
 using System.IO;
+using ZenCloud.Data.Entities;
 using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services.Implementations;
@@ -16,6 +17,7 @@ public class EmailService : IEmailService
     private readonly string _fromEmail;
     private readonly string _fromName;
     private readonly string _verificationEmailTemplate;
+    
 
     public EmailService()
     {
@@ -81,29 +83,12 @@ public class EmailService : IEmailService
         }
     }
     
-    public async Task SendPaymentConfirmationEmailAsync(
-        string email,
-        string userName,
-        string paymentType,
-        decimal amount,
-        string status,
-        DateTime date)
+    private async Task SendEmailAsync(string toEmail, string subject, string body)
     {
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(_fromName, _fromEmail));
-        message.To.Add(new MailboxAddress(userName, email));
-        message.Subject = "Confirmación de tu pago - ZenCloud";
-
-        string templatePath = "Templates/PaymentConfirmationEmailTemplate.html";
-        string bodyTemplate = File.ReadAllText(templatePath);
-
-        string body = bodyTemplate
-            .Replace("[Nombre del Usuario]", userName)
-            .Replace("[Tipo de Pago]", paymentType)
-            .Replace("[Monto]", $"${amount:N0} COP")
-            .Replace("[Estado]", status)
-            .Replace("[Fecha]", date.ToString("dd/MM/yyyy HH:mm"));
-
+        message.To.Add(new MailboxAddress(toEmail, toEmail));
+        message.Subject = subject;
         message.Body = new TextPart("html") { Text = body };
 
         using (var client = new SmtpClient())
@@ -114,7 +99,62 @@ public class EmailService : IEmailService
             await client.DisconnectAsync(true);
         }
     }
-    
+
+    // ✅ Confirmación de pago 
+    public async Task SendPaymentConfirmationEmailAsync(
+        string email,
+        string userName,
+        string paymentType,
+        decimal amount,
+        string status,
+        DateTime date)
+    {
+        var templatePath = "Templates/PaymentConfirmationEmailTemplate.html";
+        var template = await File.ReadAllTextAsync(templatePath);
+
+        var body = template
+            .Replace("[Nombre del Usuario]", userName)
+            .Replace("[Tipo de Pago]", paymentType)
+            .Replace("[Monto]", $"${amount:N0} COP")
+            .Replace("[Estado]", status)
+            .Replace("[Fecha]", date.ToString("dd/MM/yyyy HH:mm"));
+
+        var subject = "Confirmación de tu pago - ZenCloud";
+
+        await SendEmailAsync(email, subject, body);
+    }
+
+    // Email de cambio de plan
+    public async Task SendPlanChangeEmailAsync(
+        string email,
+        string userName,
+        string planName,
+        DateTime effectiveDate)
+    {
+        var templatePath = "Templates/PlanChangeEmailTemplate.html";
+        var template = await File.ReadAllTextAsync(templatePath);
+
+        // Determinar el límite de bases de datos según el plan
+        var databaseLimit = planName switch
+        {
+            "Free" => 2,
+            "Intermediate" => 5,
+            "Advanced" => 10,
+            _ => 2
+        };
+
+        var body = template
+            .Replace("[Nombre del Usuario]", userName)
+            .Replace("[Nombre del Plan]", planName)
+            .Replace("[Fecha de Cambio]", effectiveDate.ToString("dd/MM/yyyy"))
+            .Replace("[Límite de Bases de Datos]", databaseLimit.ToString());
+
+        var subject = $"Cambio a Plan {planName} - ZenCloud";
+
+        await SendEmailAsync(email, subject, body);
+    }
+
+    // Envío de credenciales de base de datos
     public async Task SendDatabaseCredentialsEmailAsync(
         string toEmail,
         string userName,
@@ -125,15 +165,10 @@ public class EmailService : IEmailService
         string host,
         int port)
     {
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_fromName, _fromEmail));
-        message.To.Add(new MailboxAddress(userName ?? toEmail, toEmail));
-        message.Subject = "Credenciales de tu nueva base de datos - ZenCloud";
+        var templatePath = "Templates/DatabaseCredentialsTemplate.html";
+        var template = await File.ReadAllTextAsync(templatePath);
 
-        string templatePath = "Templates/DatabaseCredentialsTemplate.html";
-        string htmlTemplate = await File.ReadAllTextAsync(templatePath);
-
-        string body = htmlTemplate
+        var body = template
             .Replace("[Nombre del Usuario]", System.Net.WebUtility.HtmlEncode(userName ?? toEmail))
             .Replace("[Motor]", System.Net.WebUtility.HtmlEncode(engineName))
             .Replace("[Nombre de la Base]", System.Net.WebUtility.HtmlEncode(databaseName))
@@ -142,18 +177,73 @@ public class EmailService : IEmailService
             .Replace("[Host]", System.Net.WebUtility.HtmlEncode(host))
             .Replace("[Puerto]", port.ToString());
 
-        message.Body = new TextPart("html")
-        {
-            Text = body
-        };
+        var subject = $"Credenciales de tu nueva base de datos - ZenCloud";
 
-        using (var client = new SmtpClient())
-        {
-            await client.ConnectAsync(_smtpServer, _smtpPort, false);
-            await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
-        }
+        await SendEmailAsync(toEmail, subject, body);
     }
 
+    // Email de eliminación de base de datos
+    public async Task SendDatabaseDeletionEmailAsync(
+        string toEmail,
+        string userName,
+        string databaseName,
+        string engineName,
+        DateTime deletionDate)
+    {
+        var templatePath = "Templates/DatabaseDeletionEmailTemplate.html";
+        var template = await File.ReadAllTextAsync(templatePath);
+
+        var body = template
+            .Replace("[Nombre del Usuario]", System.Net.WebUtility.HtmlEncode(userName ?? toEmail))
+            .Replace("[Nombre de la Base]", System.Net.WebUtility.HtmlEncode(databaseName))
+            .Replace("[Motor]", System.Net.WebUtility.HtmlEncode(engineName))
+            .Replace("[Fecha de Eliminación]", deletionDate.ToString("dd/MM/yyyy HH:mm"));
+
+        var subject = $"Base de datos {databaseName} eliminada - ZenCloud";
+
+        await SendEmailAsync(toEmail, subject, body);
+    }
+    
+    // Email de suscripción por expirar
+    public async Task SendSubscriptionExpiringEmailAsync(
+        string email,
+        string userName,
+        string planName,
+        DateTime expiryDate)
+    {
+        var templatePath = "Templates/SubscriptionExpiringEmailTemplate.html";
+        var template = await File.ReadAllTextAsync(templatePath);
+
+        var daysRemaining = (expiryDate - DateTime.UtcNow).Days;
+
+        var body = template
+            .Replace("[Nombre del Usuario]", userName)
+            .Replace("[Nombre del Plan]", planName)
+            .Replace("[Fecha de Expiración]", expiryDate.ToString("dd/MM/yyyy"))
+            .Replace("[Días Restantes]", daysRemaining.ToString())
+            .Replace("[Enlace de Renovación]", "https://zencloud.com/plans"); // Actualiza con tu URL real
+
+        var subject = $"Tu suscripción a {planName} está por expirar - ZenCloud";
+
+        await SendEmailAsync(email, subject, body);
+    }
+    
+    // Email de suscripción expirada
+    public async Task SendSubscriptionExpiredEmailAsync(
+        string email,
+        string userName,
+        string planName)
+    {
+        var templatePath = "Templates/SubscriptionExpiredEmailTemplate.html";
+        var template = await File.ReadAllTextAsync(templatePath);
+
+        var body = template
+            .Replace("[Nombre del Usuario]", userName)
+            .Replace("[Nombre del Plan]", planName)
+            .Replace("[Enlace de Renovación]", "https://zencloud.com/plans");
+
+        var subject = $"Tu suscripción a {planName} ha expirado - ZenCloud";
+
+        await SendEmailAsync(email, subject, body);
+    }
 }
