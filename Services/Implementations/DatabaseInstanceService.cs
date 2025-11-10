@@ -154,6 +154,10 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         if (user == null || !user.IsActive)
             throw new Exception("Usuario no válido o inactivo");
         
+        var engineName = instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado");
+        var databaseName = instance.DatabaseName;
+        var deletionDate = DateTime.UtcNow; // Usaremos esta fecha para el correo
+        
         await _databaseEngineService.DeletePhysicalDatabaseAsync(
             instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado"),
             instance.DatabaseName,
@@ -162,6 +166,16 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         
         instance.Status = DatabaseInstanceStatus.Deleted;
         instance.DeletedAt = DateTime.UtcNow;
+        
+        // 2. Llamada al servicio de correo electrónico después de la eliminación exitosa
+        // (Asumiendo que el método SendDatabaseDeletionEmailAsync está en _emailService)
+        await _emailService.SendDatabaseDeletionEmailAsync(
+            toEmail: user.Email, // Asume que el objeto user tiene una propiedad Email
+            userName: user.FullName, // Asume que el objeto user tiene el nombre
+            databaseName: databaseName,
+            engineName: engineName,
+            deletionDate: deletionDate
+        );
         
         await _databaseRepository.UpdateAsync(instance);
     }
