@@ -102,9 +102,6 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
             entity.Property(di => di.AssignedPort)
                 .IsRequired();
 
-            entity.HasIndex(di => di.AssignedPort)
-                .IsUnique();
-
             entity.Property(di => di.ConnectionString)
                 .HasMaxLength(1000);
 
