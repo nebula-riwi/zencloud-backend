@@ -25,9 +25,6 @@ public class DatabaseEngineService : IDatabaseEngineService
             case "postgresql":
                 await CreatePostgreSqlDatabaseAsync(databaseName, username, password);
                 break;
-            case "sqlserver":
-                await CreateSQLServerDatabaseAsync(databaseName, username, password);
-                break;
             default:
                 throw new NotSupportedException($"Motor {engineName} no soportado");
         }
@@ -42,9 +39,6 @@ public class DatabaseEngineService : IDatabaseEngineService
                 break;
             case "postgresql":
                 await DeletePostgreSqlDatabaseAsync(databaseName, username);
-                break;
-            case "sqlserver":
-                await DeleteSQLServerDatabaseAsync(databaseName, username);
                 break;
             default:
                 throw new NotSupportedException($"Motor {engineName} no soportado");
@@ -180,89 +174,5 @@ public class DatabaseEngineService : IDatabaseEngineService
         // 3. Eliminar el usuario
         var dropUserCommand = new NpgsqlCommand($"DROP USER IF EXISTS \"{username}\";", connection);
         await dropUserCommand.ExecuteNonQueryAsync();
-    }
-
-    private async Task CreateSQLServerDatabaseAsync(string databaseName, string username, string password)
-    {
-        var host = _configuration["SQLSERVER_HOST"];
-        var port = _configuration["SQLSERVER_PORT"];
-        var adminPassword = _configuration["SQLSERVER_ADMIN_PASSWORD"];
-        
-        var adminConnectionString = 
-            $"Server={host},{port};User Id=sa;Password={adminPassword};TrustServerCertificate=True;";
-        
-        await using var connection = new SqlConnection(adminConnectionString);
-        await connection.OpenAsync();
-
-        // 1. Crear la base de datos
-        var createDbCommand = new SqlCommand(
-            $"IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '{databaseName}') " +
-            $"CREATE DATABASE [{databaseName}];",
-            connection);
-        await createDbCommand.ExecuteNonQueryAsync();
-
-        // 2. Crear el login (a nivel de servidor)
-        var createLoginCommand = new SqlCommand(
-            $"IF NOT EXISTS (SELECT name FROM sys.server_principals WHERE name = '{username}') " +
-            $"CREATE LOGIN [{username}] WITH PASSWORD = '{password}';",
-            connection);
-        await createLoginCommand.ExecuteNonQueryAsync();
-
-        // 3. Cambiar al contexto de la base de datos creada
-        var useDbCommand = new SqlCommand($"USE [{databaseName}];", connection);
-        await useDbCommand.ExecuteNonQueryAsync();
-
-        // 4. Crear el usuario en la base de datos
-        var createUserCommand = new SqlCommand(
-            $"IF NOT EXISTS (SELECT name FROM sys.database_principals WHERE name = '{username}') " +
-            $"CREATE USER [{username}] FOR LOGIN [{username}];",
-            connection);
-        await createUserCommand.ExecuteNonQueryAsync();
-
-        // 5. Asignar permisos de db_owner al usuario
-        var grantPermissionsCommand = new SqlCommand(
-            $"ALTER ROLE db_owner ADD MEMBER [{username}];",
-            connection);
-        await grantPermissionsCommand.ExecuteNonQueryAsync();
-    }
-
-    private async Task DeleteSQLServerDatabaseAsync(string databaseName, string username)
-    {
-        var host = _configuration["SQLSERVER_HOST"];
-        var port = _configuration["SQLSERVER_PORT"];
-        var adminPassword = _configuration["SQLSERVER_ADMIN_PASSWORD"];
-        
-        var adminConnectionString = 
-            $"Server={host},{port};User Id=sa;Password={adminPassword};TrustServerCertificate=True;";
-        
-        await using var connection = new SqlConnection(adminConnectionString);
-        await connection.OpenAsync();
-
-        // 1. Cambiar a master para poder eliminar la base de datos
-        var useMasterCommand = new SqlCommand("USE master;", connection);
-        await useMasterCommand.ExecuteNonQueryAsync();
-
-        // 2. Terminar todas las conexiones activas a la base de datos
-        var killConnectionsCommand = new SqlCommand(
-            $"IF EXISTS (SELECT name FROM sys.databases WHERE name = '{databaseName}') " +
-            $"BEGIN " +
-            $"  ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; " +
-            $"END",
-            connection);
-        await killConnectionsCommand.ExecuteNonQueryAsync();
-
-        // 3. Eliminar la base de datos
-        var dropDbCommand = new SqlCommand(
-            $"IF EXISTS (SELECT name FROM sys.databases WHERE name = '{databaseName}') " +
-            $"DROP DATABASE [{databaseName}];",
-            connection);
-        await dropDbCommand.ExecuteNonQueryAsync();
-
-        // 4. Eliminar el login
-        var dropLoginCommand = new SqlCommand(
-            $"IF EXISTS (SELECT name FROM sys.server_principals WHERE name = '{username}') " +
-            $"DROP LOGIN [{username}];",
-            connection);
-        await dropLoginCommand.ExecuteNonQueryAsync();
     }
 }

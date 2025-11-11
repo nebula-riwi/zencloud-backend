@@ -117,16 +117,16 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         return engine.EngineName switch
         {
             DatabaseEngineType.MySQL =>
-                $"Server=localhost;Port={engine.DefaultPort};Database={databaseName};User={userName};Password={password};",
+                $"Server=168.119.182.243;Port={engine.DefaultPort};Database={databaseName};User={userName};Password={password};",
             DatabaseEngineType.PostgreSQL =>
-                $"Host=localhost;Port={engine.DefaultPort};Database={databaseName};Username={userName};Password={password};",
+                $"Host=168.119.182.243;Port={engine.DefaultPort};Database={databaseName};Username={userName};Password={password};",
             DatabaseEngineType.MongoDB =>
-                $"mongodb://{userName}:{password}@localhost:{engine.DefaultPort}/{databaseName}",
+                $"mongodb://{userName}:{password}@168.119.182.243:{engine.DefaultPort}/{databaseName}",
             DatabaseEngineType.SQLServer =>
-                $"Server=localhost,{engine.DefaultPort};Database={databaseName};User Id={userName};Password={password};",
-            DatabaseEngineType.Redis => $"localhost:{engine.DefaultPort},password={password}",
+                $"Server=168.119.182.243,{engine.DefaultPort};Database={databaseName};User Id={userName};Password={password};",
+            DatabaseEngineType.Redis => $"168.119.182.243:{engine.DefaultPort},password={password}",
             DatabaseEngineType.Cassandra =>
-                $"Contact Points=localhost;Port={engine.DefaultPort};Username={userName};Password={password};",
+                $"Contact Points=168.119.182.243;Port={engine.DefaultPort};Username={userName};Password={password};",
             _ => throw new Exception("Motor de base de datos no soportado")
         };
     }
