@@ -23,7 +23,8 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(
                 "http://localhost:3000",
-                "https://nebula.andrescortes.dev")
+                "https://nebula.andrescortes.dev",
+                "https://n8n.nebula.andrescortes.dev")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
