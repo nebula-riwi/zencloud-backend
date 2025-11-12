@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ZenCloud.DTOs.DatabaseManagement;
 using ZenCloud.Services.Interfaces;
@@ -76,6 +76,8 @@ namespace ZenCloud.Controllers
             var processes = await _dbService.GetProcessListAsync(instanceId, userId);
             return Ok(processes);
         }
+        
+        
 
         [HttpPost("processes/{processId}/kill")]
         public async Task<IActionResult> KillProcess(Guid instanceId, int processId)
@@ -84,14 +86,37 @@ namespace ZenCloud.Controllers
             var result = await _dbService.KillProcessAsync(instanceId, userId, processId);
             return Ok(new { success = result });
         }
-
+        
+        [HttpGet("~/api/current-user-id")]
+        public IActionResult GetCurrentUserIdEndpoint()
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                return Ok(new { UserId = userId });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(ex.Message);
+            }
+        }
+        
         private Guid GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst("id")?.Value;
+       
+            var userIdClaim = User.FindFirst("userId")?.Value;
             if (Guid.TryParse(userIdClaim, out var userId))
             {
                 return userId;
             }
+
+            
+            userIdClaim = User.FindFirst("sub")?.Value;
+            if (Guid.TryParse(userIdClaim, out userId))
+            {
+                return userId;
+            }
+
             throw new UnauthorizedAccessException("Invalid user ID");
         }
     }
