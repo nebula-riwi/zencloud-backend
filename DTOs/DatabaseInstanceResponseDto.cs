@@ -10,4 +10,6 @@ public class DatabaseInstanceResponseDto
     public string Status { get; set; } = null!;
     public string EngineName { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
+    public string ServerIpAddress { get; set; }
+
 }
