@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <title>ZenCloud · Confirmación de pago</title>
+    <title>ZenCloud · Tu suscripción está por expirar</title>
   </head>
   <body style="margin:0;padding:0;background:#050607;font-family:'Inter','Segoe UI',sans-serif;color:#f5f7fa;">
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#050607;">
@@ -24,41 +24,40 @@
                   </tr>
                   <tr>
                     <td align="center">
-                      <div style="display:inline-block;padding:8px 20px;border-radius:999px;border:1px solid rgba(78,209,145,0.45);background:rgba(78,209,145,0.12);color:#66f0b2;font-size:12px;letter-spacing:0.2em;text-transform:uppercase;">Pago confirmado</div>
+                      <div style="display:inline-block;padding:8px 20px;border-radius:999px;border:1px solid rgba(249,192,67,0.45);background:rgba(249,192,67,0.12);color:#ffe599;font-size:12px;letter-spacing:0.2em;text-transform:uppercase;">Renovación pendiente</div>
                     </td>
                   </tr>
                   <tr>
                     <td align="center" style="padding-top:20px;">
-                      <h1 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-0.02em;color:#ffffff;">Gracias por tu pago, [Nombre del Usuario]</h1>
-                      <p style="margin:12px 0 0;font-size:15px;line-height:1.7;color:rgba(231,234,243,0.78);">Tu suscripción en ZenCloud se encuentra activa. Aquí tienes el resumen de la transacción.</p>
+                      <h1 style="margin:0;font-size:26px;font-weight:700;letter-spacing:-0.02em;color:#ffffff;">Tu plan [Nombre del Plan] expirará pronto</h1>
+                      <p style="margin:12px 0 0;font-size:15px;line-height:1.7;color:rgba(231,234,243,0.78);">Hola [Nombre del Usuario], faltan [Días Restantes] días para renovar tu suscripción. Evita interrupciones y renueva a tiempo.</p>
                     </td>
                   </tr>
                 </table>
               </td>
             </tr>
             <tr>
-              <td style="padding:30px 32px 28px;">
+              <td style="padding:30px 32px 10px;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:rgba(26,28,38,0.8);border-radius:20px;border:1px solid rgba(255,255,255,0.05);">
                   <tr>
                     <td style="padding:22px;">
                       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#eef1f7;line-height:1.7;">
                         <tr>
-                          <td style="padding:6px 0;"><strong>Tipo de pago:</strong> [Tipo de Pago]</td>
+                          <td style="padding:6px 0;"><strong>Plan actual:</strong> [Nombre del Plan]</td>
                         </tr>
                         <tr>
-                          <td style="padding:6px 0;"><strong>Monto:</strong> [Monto]</td>
-                        </tr>
-                        <tr>
-                          <td style="padding:6px 0;"><strong>Estado:</strong> [Estado]</td>
-                        </tr>
-                        <tr>
-                          <td style="padding:6px 0;"><strong>Fecha:</strong> [Fecha]</td>
+                          <td style="padding:6px 0;"><strong>Fecha de expiración:</strong> [Fecha de Expiración]</td>
                         </tr>
                       </table>
+                      <p style="margin:16px 0 0;font-size:13px;color:rgba(200,204,215,0.75);">Asegura la continuidad de tus servicios y la disponibilidad de tus bases de datos renovando antes de la fecha indicada.</p>
                     </td>
                   </tr>
                 </table>
-                <p style="margin:18px 0 0;font-size:13px;color:rgba(200,204,215,0.75);">El comprobante se genera automáticamente y estará disponible desde tu panel de facturación.</p>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:12px 32px 10px;">
+                <a href="[Enlace de Renovación]" style="display:inline-block;padding:16px 32px;border-radius:16px;background:linear-gradient(135deg,#f59a63,#e78a53);color:#0f1014;font-weight:600;font-size:15px;text-decoration:none;box-shadow:0 22px 30px -16px rgba(231,138,83,0.55);">Renovar ahora</a>
               </td>
             </tr>
             <tr>
@@ -66,8 +65,8 @@
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                   <tr>
                     <td style="font-size:13px;line-height:1.6;color:rgba(200,204,215,0.75);border-top:1px solid rgba(255,255,255,0.05);padding-top:22px;">
-                      <p style="margin:0 0 6px;">¿Necesitas soporte con tu factura? Escríbenos a <a href="mailto:soporte@zencloud.com" style="color:#f59a63;text-decoration:none;">soporte@zencloud.com</a>.</p>
-                      <p style="margin:0;">© 2025 ZenCloud · Seguimos impulsando tus servicios en la nube.</p>
+                      <p style="margin:0 0 6px;">¿Necesitas cambiar de plan o hablar con nosotros? Escríbenos a <a href="mailto:soporte@zencloud.com" style="color:#f59a63;text-decoration:none;">soporte@zencloud.com</a>.</p>
+                      <p style="margin:0;">© 2025 ZenCloud · Impulsa tu infraestructura sin pausas.</p>
                     </td>
                   </tr>
                 </table>
@@ -79,3 +78,4 @@
     </table>
   </body>
 </html>
+
