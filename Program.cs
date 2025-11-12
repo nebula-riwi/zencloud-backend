@@ -69,7 +69,11 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddFluentValidationClientsideAdapters();
 builder.Services.AddValidatorsFromAssemblyContaining<LoginRequestValidator>();
 
-builder.Services.AddControllers()
+builder.Services.AddControllers(options =>
+{
+    // Asegurar que las rutas se resuelvan correctamente
+    options.SuppressAsyncSuffixInActionNames = false;
+})
     .AddNewtonsoftJson(options =>
     {
         options.SerializerSettings.ReferenceLoopHandling = Newtonsoft.Json.ReferenceLoopHandling.Ignore;
@@ -92,7 +96,8 @@ builder.Services.AddCors(options =>
                 "https://localhost:3000",
                 "https://localhost:5173",
                 "https://nebula.andrescortes.dev",
-                "http://nebula.andrescortes.dev")
+                "http://nebula.andrescortes.dev",
+                "https://n8n.nebula.andrescortes.dev")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials()
@@ -283,6 +288,9 @@ else
     app.UseCors("AllowFrontend");
 }
 
+// Routing debe ir antes de otros middlewares
+app.UseRouting();
+
 // Middleware de manejo global de excepciones
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
@@ -299,10 +307,19 @@ app.UseSwaggerUI(options =>
     options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
 });
 
-app.UseHttpsRedirection();
+// HTTPS redirection puede causar problemas en algunos entornos de producción
+// Comentado temporalmente para debugging
+// app.UseHttpsRedirection();
+
+// Autenticación y autorización
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
+
+// Endpoints
+app.UseEndpoints(endpoints =>
+{
+    endpoints.MapControllers();
+});
 
 // Endpoint raíz de verificación
 app.MapGet("/", () => Results.Json(new
