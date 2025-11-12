@@ -23,9 +23,7 @@ services:
       # 🔗 Connection Strings COMPLETAS desde variables
       ConnectionStrings__MySQL: "Server=${MYSQL_HOST};Port=${MYSQL_PORT};Database=${MYSQL_DEFAULT_DATABASE};User=${MYSQL_ADMIN_USER};Password=${MYSQL_ADMIN_PASSWORD};"
       ConnectionStrings__Postgres: "Host=${POSTGRES_HOST};Port=${POSTGRES_PORT};Database=${POSTGRES_DEFAULT_DATABASE};Username=${POSTGRES_ADMIN_USER};Password=${POSTGRES_ADMIN_PASSWORD};"
-      ConnectionStrings__SqlServer: "Server=${SQLSERVER_HOST};Port=${SQLSERVER_PORT};Database=${SQLSERVER_DEFAULT_DATABASE};User=${SQLSERVER_ADMIN_USER};Password=${SQLSERVER_ADMIN_PASSWORD};"
       ConnectionStrings__Mongo: "mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DEFAULT_DATABASE}"
-      ConnectionStrings__Cassandra: "cassandra://${CASSANDRA_ADMIN_USER}:${CASSANDRA_ADMIN_PASSWORD}@${CASSANDRA_HOST}:${CASSANDRA_PORT}"
       ConnectionStrings__Redis: "${REDIS_HOST}:${REDIS_PORT},password=${REDIS_ADMIN_PASSWORD}"
 
     depends_on:
@@ -68,19 +66,6 @@ services:
       - "5433:5432"
     volumes:
         - postgres_data:/var/lib/postgresql/data
-      
-  # 🏢 SQL Server
-  sqlserver-ZenDb:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: sqlserver-ZenDb
-    restart: always
-    environment:
-      SA_PASSWORD: "${SQLSERVER_ADMIN_PASSWORD}"
-      ACCEPT_EULA: "Y"
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqlserver_data:/var/opt/mssql
     
   # 🍃 MongoDB
   mongo-ZenDb:
@@ -96,20 +81,6 @@ services:
     volumes:
       - mongo_data:/data/db
   
-  # 🌐 Cassandra
-  cassandra-ZenDb:
-    image: cassandra:5
-    container_name: cassandra-ZenDb
-    restart: always
-    environment:
-      CASSANDRA_AUTHENTICATOR: PasswordAuthenticator
-      CASSANDRA_SUPERUSER_USERNAME: "${CASSANDRA_ADMIN_USER}"
-      CASSANDRA_SUPERUSER_PASSWORD: "${CASSANDRA_ADMIN_PASSWORD}"
-    ports:
-      - "9042:9042"
-    volumes:
-      - cassandra_data:/var/lib/cassandra
-  
   # ⚡  Redis
   redis-ZenDb:
     image: redis:7
@@ -124,7 +95,5 @@ services:
 volumes:
   mysql_data:
   postgres_data:
-  sqlserver_data:
   mongo_data:
-  cassandra_data:
   redis_data:
