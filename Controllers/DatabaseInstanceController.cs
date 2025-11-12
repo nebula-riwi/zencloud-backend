@@ -124,4 +124,40 @@ public class DatabaseInstanceController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    [HttpGet("my-databases")]
+       [Authorize]
+       public async Task<IActionResult> GetMyDatabases()
+       {
+           try
+           { 
+            // Extraer userId del token JWT usando el claim "sub"
+            var userIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value; // Cambiado a JwtRegisteredClaimNames.Sub
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            var databases = await _databaseInstanceService.GetUserDatabasesAsync(userId);
+
+            var response = databases.Select(db => new DatabaseInstanceResponseDto
+            {
+                InstanceId = db.InstanceId,
+                DatabaseName = db.DatabaseName,
+                DatabaseUser = db.DatabaseUser,
+                AssignedPort = db.AssignedPort,
+                ConnectionString = db.ConnectionString,
+                Status = db.Status.ToString(),
+                EngineName = db.Engine?.EngineName.ToString() ?? "Unknown",
+                CreatedAt = db.CreatedAt,
+                ServerIpAddress = db.ServerIpAddress
+            });
+        
+            return Ok(new { data = response });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = "Error al obtener las bases de datos" });
+        }
+    }
 }
