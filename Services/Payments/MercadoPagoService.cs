@@ -40,7 +40,7 @@ namespace ZenCloud.Services
                 new AuthenticationHeaderValue("Bearer", _accessToken);
         }
 
-        // ✅ Crear preferencia de pago para SUSCRIPCIÓN (CORREGIDO)
+        // Crear preferencia de pago para SUSCRIPCIÓN
         public async Task<string> CreateSubscriptionPreferenceAsync(Guid userId, int planId, string successUrl, string failureUrl, string notificationUrl)
         {
             // Obtener el plan
@@ -84,7 +84,7 @@ namespace ZenCloud.Services
 
             if (!response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"❌ MercadoPago Error: {response.StatusCode}");
+                Console.WriteLine($"MercadoPago Error: {response.StatusCode}");
                 Console.WriteLine(responseBody);
                 throw new Exception($"MercadoPago Error: {response.StatusCode} - {responseBody}");
             }
@@ -93,7 +93,7 @@ namespace ZenCloud.Services
             var initPoint = jsonDoc.GetProperty("init_point").GetString()!;
             var preferenceId = jsonDoc.GetProperty("id").GetString()!;
 
-            // ✅ Guardar el pago en la BD con PREFERENCE ID (no payment ID)
+            // Guardar el pago en la BD con PREFERENCE ID (no payment ID)
             var payment = new Payment
             {
                 PaymentId = Guid.NewGuid(),
@@ -109,45 +109,45 @@ namespace ZenCloud.Services
 
             await _paymentRepository.AddAsync(payment);
 
-            Console.WriteLine($"✅ Preference creada: {preferenceId}");
-            Console.WriteLine($"✅ Payment guardado en BD con MercadoPagoPaymentId: {preferenceId}");
+            Console.WriteLine($"Preference creada: {preferenceId}");
+            Console.WriteLine($"Payment guardado en BD con MercadoPagoPaymentId: {preferenceId}");
 
             return initPoint;
         }
 
-        // ✅ Procesar Webhook de Mercado Pago (CORREGIDO)
+        // Procesar Webhook de Mercado Pago
         public async Task ProcessWebhookAsync(JsonElement data)
         {
-            Console.WriteLine("🔍 Analizando webhook...");
+            Console.WriteLine("Analizando webhook...");
             
             if (!data.TryGetProperty("topic", out var topic) || topic.GetString() != "payment")
             {
-                Console.WriteLine("ℹ️ Webhook ignorado: no es topic 'payment'.");
+                Console.WriteLine("Webhook ignorado: no es topic 'payment'.");
                 return;
             }
 
             // Leer paymentId del webhook
             if (!data.TryGetProperty("resource", out var resource) || string.IsNullOrEmpty(resource.GetString()))
             {
-                Console.WriteLine("❌ Resource no encontrado en webhook");
+                Console.WriteLine("Resource no encontrado en webhook");
                 return;
             }
 
             var paymentIdString = resource.GetString()!;
-            Console.WriteLine($"🔍 Payment ID del webhook: {paymentIdString}");
+            Console.WriteLine($"Payment ID del webhook: {paymentIdString}");
 
             if (!long.TryParse(paymentIdString, out var paymentId))
             {
-                Console.WriteLine($"❌ Payment ID inválido: {paymentIdString}");
+                Console.WriteLine($"Payment ID invalido: {paymentIdString}");
                 return;
             }
 
-            Console.WriteLine($"🔍 Consultando pago {paymentId} en Mercado Pago...");
+            Console.WriteLine($"Consultando pago {paymentId} en Mercado Pago...");
 
             var response = await _httpClient.GetAsync($"v1/payments/{paymentId}");
             if (!response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"❌ Error consultando pago: {response.StatusCode}");
+                Console.WriteLine($"Error consultando pago: {response.StatusCode}");
                 return;
             }
 
@@ -167,6 +167,7 @@ namespace ZenCloud.Services
             // Leer metadata para obtener plan_id y user_id
             Guid userId = Guid.Empty;
             int planId = 1; // Default Free plan
+            string? preferenceId = null;
 
             if (paymentData.TryGetProperty("metadata", out var metadata))
             {
@@ -182,15 +183,42 @@ namespace ZenCloud.Services
                 }
             }
 
-            Console.WriteLine($"💰 Estado: {status} | Payment ID: {mpPaymentId} | User: {userId} | Plan: {planId}");
+            // Leer preference_id del pago (si existe)
+            if (paymentData.TryGetProperty("preference_id", out var prefId))
+            {
+                preferenceId = prefId.GetString();
+                Console.WriteLine($"Preference ID encontrado en payment: {preferenceId}");
+            }
 
-            // ✅ BUSCAR POR PREFERENCE ID
-            var payment = await FindPaymentByPreferenceIdAsync(mpPaymentId);
+            Console.WriteLine($"Estado: {status} | Payment ID: {mpPaymentId} | Preference ID: {preferenceId} | User: {userId} | Plan: {planId}");
+
+            // BUSCAR POR PREFERENCE ID primero, luego por payment ID
+            Payment? payment = null;
+            
+            if (!string.IsNullOrEmpty(preferenceId))
+            {
+                payment = await _paymentRepository.GetByMercadoPagoIdAsync(preferenceId);
+                if (payment != null)
+                {
+                    Console.WriteLine($"Payment encontrado por Preference ID: {preferenceId}");
+                }
+            }
+            
+            // Si no se encontró por preference_id, buscar por user_id y plan_id en pagos pendientes
+            if (payment == null && userId != Guid.Empty)
+            {
+                var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
+                payment = pendingPayments.FirstOrDefault(p => p.UserId == userId);
+                if (payment != null)
+                {
+                    Console.WriteLine($"Payment encontrado por User ID: {userId}");
+                }
+            }
             
             if (payment == null)
             {
-                Console.WriteLine("⚠️ No se encontró el pago en la base de datos.");
-                Console.WriteLine($"ℹ️ Buscando payment con preference_id que corresponda al payment_id: {mpPaymentId}");
+                Console.WriteLine("No se encontro el pago en la base de datos.");
+                Console.WriteLine($"Payment ID: {mpPaymentId}, Preference ID: {preferenceId}, User ID: {userId}, Plan ID: {planId}");
                 return;
             }
 
@@ -214,49 +242,24 @@ namespace ZenCloud.Services
             }
         }
 
-        // ✅ Método para buscar payment por preference_id
-        private async Task<Payment?> FindPaymentByPreferenceIdAsync(string mercadoPagoPaymentId)
-        {
-            // Primero intentamos buscar directamente por el ID (por si ya fue actualizado)
-            var payment = await _paymentRepository.GetByMercadoPagoIdAsync(mercadoPagoPaymentId);
-            if (payment != null)
-            {
-                return payment;
-            }
-
-            // Si no se encuentra
-            // Buscar todos los pagos pendientes y verificar
-            var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
-            
-            foreach (var p in pendingPayments)
-            {
-
-                if (p.PaymentStatus == PaymentStatusType.Pending)
-                {
-                    return p;
-                }
-            }
-
-            return null;
-        }
 
         private async Task ProcessApprovedPaymentAsync(Payment payment, int planId, Guid userId)
         {
             var user = await _userRepository.GetByIdAsync(userId);
             if (user == null)
             {
-                Console.WriteLine($"❌ Usuario no encontrado: {userId}");
+                Console.WriteLine($"Usuario no encontrado: {userId}");
                 return;
             }
 
             var plan = await _planRepository.GetByIdAsync(planId);
             if (plan == null)
             {
-                Console.WriteLine($"❌ Plan no encontrado: {planId}");
+                Console.WriteLine($"Plan no encontrado: {planId}");
                 return;
             }
 
-            Console.WriteLine($"✅ Procesando pago aprobado para usuario: {user.Email}, plan: {plan.PlanName}");
+            Console.WriteLine($"Procesando pago aprobado para usuario: {user.Email}, plan: {plan.PlanName}");
 
             // Buscar suscripción activa del usuario
             var existingSubscription = await _subscriptionRepository.GetActiveByUserIdAsync(userId);
@@ -273,7 +276,7 @@ namespace ZenCloud.Services
 
                 await _subscriptionRepository.UpdateAsync(existingSubscription);
                 subscription = existingSubscription; // Guardar referencia
-                Console.WriteLine($"✅ Suscripción actualizada: {existingSubscription.SubscriptionId}");
+                Console.WriteLine($"Suscripcion actualizada: {existingSubscription.SubscriptionId}");
             }
             else
             {
@@ -292,13 +295,13 @@ namespace ZenCloud.Services
                 };
 
                 await _subscriptionRepository.AddAsync(subscription);
-                Console.WriteLine($"✅ Nueva suscripción creada: {subscription.SubscriptionId}");
+                Console.WriteLine($"Nueva suscripcion creada: {subscription.SubscriptionId}");
             }
 
             // Vincular el pago con la suscripción
             payment.SubscriptionId = subscription.SubscriptionId;
             await _paymentRepository.UpdateAsync(payment);
-            Console.WriteLine($"✅ Pago vinculado con suscripción: {payment.PaymentId} -> {subscription.SubscriptionId}");
+            Console.WriteLine($"Pago vinculado con suscripcion: {payment.PaymentId} -> {subscription.SubscriptionId}");
 
             // Enviar correo de confirmación de pago
             try
@@ -311,11 +314,11 @@ namespace ZenCloud.Services
                     "Aprobado",
                     payment.TransactionDate
                 );
-                Console.WriteLine($"✅ Email de confirmación enviado a: {user.Email}");
+                Console.WriteLine($"Email de confirmacion enviado a: {user.Email}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Error enviando email: {ex.Message}");
+                Console.WriteLine($"Error enviando email: {ex.Message}");
             }
 
             // Enviar correo de cambio de plan
@@ -327,11 +330,11 @@ namespace ZenCloud.Services
                     plan.PlanName.ToString(),
                     payment.TransactionDate
                 );
-                Console.WriteLine($"✅ Email de cambio de plan enviado a: {user.Email}");
+                Console.WriteLine($"Email de cambio de plan enviado a: {user.Email}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Error enviando email de cambio de plan: {ex.Message}");
+                Console.WriteLine($"Error enviando email de cambio de plan: {ex.Message}");
             }
         }
     }

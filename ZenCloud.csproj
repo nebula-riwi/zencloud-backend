@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <!-- Suprimir advertencias comunes de nullable y diseño que son esperadas -->
+    <NoWarn>$(NoWarn);CS8618;CS8601;CS8603;CS8604;CS8619;CS8613;CS0108;CS0109;CS8625</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,7 +30,11 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.Postgresql" Version="9.0.4" />
     <PackageReference Include="StackExchange.Redis" Version="2.9.32" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="6.6.2" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+    <PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

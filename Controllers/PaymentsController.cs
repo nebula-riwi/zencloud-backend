@@ -20,7 +20,7 @@ public class PaymentsController : ControllerBase
         _planRepository = planRepository;
     }
 
-    // ✅ ÚNICO endpoint para crear pagos de suscripción
+    // Endpoint para crear pagos de suscripción
     [HttpPost("create")]
     public async Task<IActionResult> Create([FromBody] CreateSubscriptionRequest request)
     {
@@ -50,12 +50,12 @@ public class PaymentsController : ControllerBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error creando pago: {ex.Message}");
+            Console.WriteLine($"Error creando pago: {ex.Message}");
             return StatusCode(500, new { error = ex.Message });
         }
     }
 
-    // ✅ Obtener planes disponibles
+    // Obtener planes disponibles
     [HttpGet("plans")]
     public async Task<IActionResult> GetPlans()
     {
@@ -80,7 +80,7 @@ public class PaymentsController : ControllerBase
         }
     }
 
-    // ✅ Webhook para procesar pagos
+    // Webhook para procesar pagos
     [AllowAnonymous]
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook()
@@ -91,17 +91,17 @@ public class PaymentsController : ControllerBase
             using var reader = new StreamReader(HttpContext.Request.Body);
             var body = await reader.ReadToEndAsync();
             
-            Console.WriteLine("📬 Webhook recibido:");
+            Console.WriteLine("Webhook recibido:");
             Console.WriteLine(body);
 
             var data = JsonDocument.Parse(body).RootElement;
             await _mpService.ProcessWebhookAsync(data);
             
-            return Ok(new { message = "Webhook procesado correctamente ✅" });
+            return Ok(new { message = "Webhook procesado correctamente" });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error procesando webhook: {ex.Message}");
+            Console.WriteLine($"Error procesando webhook: {ex.Message}");
             return StatusCode(500, new { error = ex.Message });
         }
     }

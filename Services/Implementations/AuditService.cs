@@ -15,7 +15,7 @@ namespace ZenCloud.Services.Implementations
         public AuditService(
             PgDbContext context,
             ILogger<AuditService> logger,
-            IHttpContextAccessor httpContextAccessor = null)
+            IHttpContextAccessor? httpContextAccessor = null)
         {
             _context = context;
             _logger = logger;

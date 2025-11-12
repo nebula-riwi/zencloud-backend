@@ -340,6 +340,10 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
             entity.ToTable("WebhookConfigurations");
             entity.HasKey(wc => wc.WebhookId);
 
+            entity.Property(wc => wc.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+
             entity.Property(wc => wc.WebhookUrl)
                 .IsRequired()
                 .HasMaxLength(1000);
