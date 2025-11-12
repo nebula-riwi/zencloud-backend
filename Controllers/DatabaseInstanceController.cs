@@ -131,8 +131,8 @@ public class DatabaseInstanceController : ControllerBase
        {
            try
            { 
-            // Extraer userId del token JWT usando el claim "sub"
-            var userIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value; // Cambiado a JwtRegisteredClaimNames.Sub
+           
+            var userIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value; 
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
                 return Unauthorized(new { message = "Usuario no autenticado" });
