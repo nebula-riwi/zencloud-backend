@@ -29,9 +29,7 @@ services:
     depends_on:
       - mysql-ZenDb
       - postgres-ZenDb
-      - sqlserver-ZenDb
       - mongo-ZenDb
-      - cassandra-ZenDb
       - redis-ZenDb
 
   # 🐬 MySQL
