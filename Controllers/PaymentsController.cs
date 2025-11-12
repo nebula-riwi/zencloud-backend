@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using System.IdentityModel.Tokens.Jwt;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.DTOs;
 using ZenCloud.Services;
@@ -22,20 +23,37 @@ public class PaymentsController : ControllerBase
 
     // Endpoint para crear pagos de suscripción
     [HttpPost("create")]
+    [Authorize]
     public async Task<IActionResult> Create([FromBody] CreateSubscriptionRequest request)
     {
-        if (request == null || request.PlanId <= 0)
-            return BadRequest("PlanId inválido.");
-
         try
         {
+            if (request == null || request.PlanId <= 0)
+                return BadRequest(new { message = "PlanId inválido." });
+
+            // Obtener userId del token si no viene en el request
+            Guid userId;
+            if (request.UserId == Guid.Empty)
+            {
+                var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                                 User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+                if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out userId))
+                {
+                    return Unauthorized(new { message = "Usuario no autenticado" });
+                }
+            }
+            else
+            {
+                userId = request.UserId;
+            }
+
             // Verificar que el plan existe
             var plan = await _planRepository.GetByIdAsync(request.PlanId);
             if (plan == null)
-                return BadRequest("Plan no encontrado.");
+                return BadRequest(new { message = "Plan no encontrado." });
 
             var paymentUrl = await _mpService.CreateSubscriptionPreferenceAsync(
-                request.UserId,
+                userId,
                 request.PlanId,
                 successUrl: "https://nebula.andrescortes.dev/payment/success",
                 failureUrl: "https://nebula.andrescortes.dev/payment/failure", 
@@ -51,7 +69,8 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             Console.WriteLine($"Error creando pago: {ex.Message}");
-            return StatusCode(500, new { error = ex.Message });
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            return StatusCode(500, new { message = "Error al crear el pago: " + ex.Message });
         }
     }
 

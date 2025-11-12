@@ -58,28 +58,72 @@ public class EmailService : IEmailService
 
     public async Task SendPasswordResetEmailAsync(string email, string resetToken)
     {
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_fromName, _fromEmail));
-        message.To.Add(new MailboxAddress(email, email));
-        message.Subject = "Restablecer tu contraseña - ZenCloud";
-
-        // Cargar plantilla de restablecimiento de contraseña
-        string passwordResetTemplate = File.ReadAllText("Templates/PasswordResetEmailTemplate.html");
-        string body = passwordResetTemplate
-            .Replace("[Nombre del Usuario]", email)
-            .Replace("[Enlace de Restablecimiento]", $"https://service.nebula.andrescortes.dev/Auth/reset-password?email={email}&token={resetToken}");
-
-        message.Body = new TextPart("html")
+        try
         {
-            Text = body
-        };
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_fromName, _fromEmail));
+            message.To.Add(new MailboxAddress(email, email));
+            message.Subject = "Restablecer tu contraseña - ZenCloud";
 
-        using (var client = new SmtpClient())
+            // Cargar plantilla de restablecimiento de contraseña
+            string passwordResetTemplate;
+            var templatePath = Path.Combine(Directory.GetCurrentDirectory(), "Templates", "PasswordResetEmailTemplate.html");
+            
+            if (File.Exists(templatePath))
+            {
+                passwordResetTemplate = await File.ReadAllTextAsync(templatePath);
+            }
+            else
+            {
+                // Plantilla simple si no existe el archivo
+                passwordResetTemplate = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Restablecer Contraseña</title>
+</head>
+<body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+    <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+        <h2 style='color: #e78a53;'>Restablecer tu Contraseña</h2>
+        <p>Hola [Nombre del Usuario],</p>
+        <p>Has solicitado restablecer tu contraseña. Haz clic en el siguiente enlace para continuar:</p>
+        <p style='text-align: center; margin: 30px 0;'>
+            <a href='[Enlace de Restablecimiento]' style='background-color: #e78a53; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;'>Restablecer Contraseña</a>
+        </p>
+        <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+        <p>Este enlace expirará en 1 hora.</p>
+        <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+        <p style='font-size: 12px; color: #999;'>ZenCloud - Gestión de Bases de Datos en la Nube</p>
+    </div>
+</body>
+</html>";
+            }
+
+            string body = passwordResetTemplate
+                .Replace("[Nombre del Usuario]", email)
+                .Replace("[Enlace de Restablecimiento]", $"https://nebula.andrescortes.dev/reset-password?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(resetToken)}");
+
+            message.Body = new TextPart("html")
+            {
+                Text = body
+            };
+
+            using (var client = new SmtpClient())
+            {
+                await client.ConnectAsync(_smtpServer, _smtpPort, false);
+                await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
+                await client.SendAsync(message);
+                await client.DisconnectAsync(true);
+            }
+
+            Console.WriteLine($"Email de restablecimiento de contraseña enviado a: {email}");
+        }
+        catch (Exception ex)
         {
-            await client.ConnectAsync(_smtpServer, _smtpPort, false);
-            await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            Console.WriteLine($"Error enviando email de restablecimiento de contraseña: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw;
         }
     }
     

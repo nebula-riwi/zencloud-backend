@@ -6,6 +6,6 @@ public interface IDatabaseInstanceService
 {
     Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId);
     Task<DatabaseInstance?> GetDatabaseByIdAsync(Guid instanceId);
-    Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId);
+    Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId, string? databaseName = null);
     Task DeleteDatabaseInstanceAsync(Guid instanceId, Guid userId);
 }

@@ -77,21 +77,57 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(422, "Errores de validación")]
     public async Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request)
     {
-        var userId = GetCurrentUserId();
-        var webhook = await _webhookService.CreateWebhookAsync(userId, request.Name, request.Url, request.EventType);
-        
-        var response = new WebhookResponse
+        try
         {
-            WebhookId = webhook.WebhookId,
-            Name = request.Name,
-            WebhookUrl = webhook.WebhookUrl,
-            EventType = webhook.EventType.ToString(),
-            IsActive = webhook.IsActive,
-            CreatedAt = webhook.CreatedAt,
-            UpdatedAt = webhook.UpdatedAt
-        };
+            if (request == null)
+            {
+                throw new BadRequestException("La solicitud no puede estar vacía");
+            }
 
-        return Ok(new { message = "Webhook creado exitosamente", data = response });
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                throw new BadRequestException("El nombre del webhook es obligatorio");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Url))
+            {
+                throw new BadRequestException("La URL del webhook es obligatoria");
+            }
+
+            if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                throw new BadRequestException("La URL del webhook no es válida");
+            }
+
+            var userId = GetCurrentUserId();
+            var webhook = await _webhookService.CreateWebhookAsync(userId, request.Name, request.Url, request.EventType);
+            
+            var response = new WebhookResponse
+            {
+                WebhookId = webhook.WebhookId,
+                Name = webhook.Name,
+                WebhookUrl = webhook.WebhookUrl,
+                EventType = webhook.EventType.ToString(),
+                IsActive = webhook.IsActive,
+                CreatedAt = webhook.CreatedAt,
+                UpdatedAt = webhook.UpdatedAt
+            };
+
+            return Ok(new { message = "Webhook creado exitosamente", data = response });
+        }
+        catch (BadRequestException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creando webhook");
+            return StatusCode(500, new { message = "Error al crear el webhook: " + ex.Message });
+        }
     }
 
     /// <summary>
