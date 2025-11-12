@@ -4,6 +4,7 @@ public class WebhookConfiguration
 {
     public Guid WebhookId { get; set; }
     public Guid UserId { get; set; }
+    public string Name { get; set; } = null!;
     public string WebhookUrl { get; set; } = null!;
     public WebhookEventType EventType { get; set; }
     public bool IsActive { get; set; } = true;

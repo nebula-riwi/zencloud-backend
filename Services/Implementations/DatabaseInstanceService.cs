@@ -1,6 +1,7 @@
 using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.Services.Interfaces;
+using ZenCloud.Exceptions;
 
 namespace ZenCloud.Services.Implementations;
 
@@ -47,19 +48,19 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         var user = await _userRepository.GetByIdAsync(userId);
         if (user == null)
         {
-            throw new Exception("Usuario no encontrado");
+            throw new NotFoundException("Usuario no encontrado");
         }
 
         var engine = await _engineRepository.GetByIdAsync(engineId);
         if (engine == null || !engine.IsActive)
         {
-            throw new Exception("Motor de base de datos no válido");
+            throw new BadRequestException("Motor de base de datos no válido o inactivo");
         }
         
         var canCreate = await _planValidationService.CanCreateDatabaseAsync(userId, engineId);
         if (!canCreate)
         {
-            throw new Exception("Has alcanzado el límite de bases de datos para tu plan");
+            throw new ConflictException("Has alcanzado el límite de bases de datos para tu plan actual");
         }
         
         var databaseName = _credentialsGenerator.GenerateDatabaseName(
@@ -97,7 +98,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         
         await _databaseRepository.CreateAsync(databaseInstance);
         
-        // 📧 Enviar correo con credenciales
+        // Enviar correo con credenciales
         await _emailService.SendDatabaseCredentialsEmailAsync(
             user.Email,
             user.FullName,
@@ -127,7 +128,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
             DatabaseEngineType.Redis => $"168.119.182.243:{engine.DefaultPort},password={password}",
             DatabaseEngineType.Cassandra =>
                 $"Contact Points=168.119.182.243;Port={engine.DefaultPort};Username={userName};Password={password};",
-            _ => throw new Exception("Motor de base de datos no soportado")
+            _ => throw new BadRequestException("Motor de base de datos no soportado")
         };
     }
     
@@ -137,29 +138,29 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         
         if (instance == null)
         {
-            throw new Exception("Base de datos no encontrada");
+            throw new NotFoundException("Base de datos no encontrada");
         }
 
         if (instance.UserId != userId)
         {
-            throw new Exception("No tienes permisos para eliminar esta base de datos");
+            throw new ForbiddenException("No tienes permisos para eliminar esta base de datos");
         }
 
         if (instance.Status != DatabaseInstanceStatus.Active)
         {
-            throw new Exception("La base de datos se encuentra inactiva");
+            throw new BadRequestException("La base de datos se encuentra inactiva");
         }
         
         var user = await _userRepository.GetByIdAsync(userId);
         if (user == null || !user.IsActive)
-            throw new Exception("Usuario no válido o inactivo");
+            throw new NotFoundException("Usuario no válido o inactivo");
         
-        var engineName = instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado");
+        var engineName = instance.Engine?.EngineName.ToString() ?? throw new NotFoundException("Motor no encontrado");
         var databaseName = instance.DatabaseName;
         var deletionDate = DateTime.UtcNow; // Usaremos esta fecha para el correo
         
         await _databaseEngineService.DeletePhysicalDatabaseAsync(
-            instance.Engine?.EngineName.ToString() ?? throw new Exception("Motor no encontrado"),
+            instance.Engine?.EngineName.ToString() ?? throw new NotFoundException("Motor no encontrado"),
             instance.DatabaseName,
             instance.DatabaseUser
         );

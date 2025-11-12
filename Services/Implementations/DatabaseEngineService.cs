@@ -62,35 +62,59 @@ public class DatabaseEngineService : IDatabaseEngineService
 
     private async Task CreateMySqlDatabaseAsync(string databaseName, string username, string password)
     {
-        var host = _configuration["MYSQL_HOST"];
-        var port = _configuration["MYSQL_PORT"];
-        var adminUser = _configuration["MYSQL_ADMIN_USER"];
-        var adminPassword = _configuration["MYSQL_ADMIN_PASSWORD"];
+        var host = _configuration["MYSQL_HOST"] ?? throw new InvalidOperationException("MYSQL_HOST no configurado");
+        var port = _configuration["MYSQL_PORT"] ?? throw new InvalidOperationException("MYSQL_PORT no configurado");
+        var adminUser = _configuration["MYSQL_ADMIN_USER"] ?? throw new InvalidOperationException("MYSQL_ADMIN_USER no configurado");
+        var adminPassword = _configuration["MYSQL_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("MYSQL_ADMIN_PASSWORD no configurado");
+        
+        if (string.IsNullOrWhiteSpace(databaseName) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentException("Database name, username y password son requeridos");
+        }
         
         var adminConnectionString = 
-            $"Server={host};Port={port};User={adminUser};Password={adminPassword};Database=mysql";
+            $"Server={host};Port={port};User={adminUser};Password={adminPassword};Database=mysql;Connection Timeout=30;";
         
         using var connection = new MySqlConnection(adminConnectionString);
-        await connection.OpenAsync();
+        try
+        {
+            await connection.OpenAsync();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error conectando a MySQL: {ex.Message}", ex);
+        }
         
-        var createDbCommand = new MySqlCommand($"CREATE DATABASE IF NOT EXISTS`{databaseName}`;", connection);
-        await createDbCommand.ExecuteNonQueryAsync();
-        
-        // 2. Crear el usuario
-        var createUserCommand = new MySqlCommand(
-            $"CREATE USER IF NOT EXISTS '{username}'@'%' IDENTIFIED BY '{password}';", 
-            connection);
-        await createUserCommand.ExecuteNonQueryAsync();
+        try
+        {
+            // 1. Crear la base de datos
+            var createDbCommand = new MySqlCommand($"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", connection);
+            await createDbCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Base de datos MySQL '{databaseName}' creada o ya existe");
+            
+            // 2. Crear el usuario
+            var createUserCommand = new MySqlCommand(
+                $"CREATE USER IF NOT EXISTS '{username}'@'%' IDENTIFIED BY '{password}';", 
+                connection);
+            await createUserCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Usuario MySQL '{username}' creado o ya existe");
 
-        // 3. Asignar permisos
-        var grantCommand = new MySqlCommand(
-            $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{username}'@'%';", 
-            connection);
-        await grantCommand.ExecuteNonQueryAsync();
+            // 3. Asignar permisos
+            var grantCommand = new MySqlCommand(
+                $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{username}'@'%';", 
+                connection);
+            await grantCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Permisos otorgados a '{username}' en '{databaseName}'");
 
-        // 4. Aplicar cambios
-        var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
-        await flushCommand.ExecuteNonQueryAsync();
+            // 4. Aplicar cambios
+            var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
+            await flushCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Privilegios aplicados");
+        }
+        catch (MySqlException ex)
+        {
+            throw new InvalidOperationException($"Error creando base de datos MySQL: {ex.Message}", ex);
+        }
     }
     
     private async Task DeleteMySqlDatabaseAsync(string databaseName, string username)
@@ -121,46 +145,73 @@ public class DatabaseEngineService : IDatabaseEngineService
 
     private async Task CreatePostgreSqlDatabaseAsync(string databaseName, string username, string password)
     {
-        var host = _configuration["POSTGRES_HOST"];
-        var port = _configuration["POSTGRES_PORT"];
-        var adminUser = _configuration["POSTGRES_ADMIN_USER"];
-        var adminPassword = _configuration["POSTGRES_ADMIN_PASSWORD"];
+        var host = _configuration["POSTGRES_HOST"] ?? throw new InvalidOperationException("POSTGRES_HOST no configurado");
+        var port = _configuration["POSTGRES_PORT"] ?? throw new InvalidOperationException("POSTGRES_PORT no configurado");
+        var adminUser = _configuration["POSTGRES_ADMIN_USER"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_USER no configurado");
+        var adminPassword = _configuration["POSTGRES_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_PASSWORD no configurado");
+        
+        if (string.IsNullOrWhiteSpace(databaseName) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentException("Database name, username y password son requeridos");
+        }
         
         var adminConnectionString = 
-            $"Host={host};Port={port};Username={adminUser};Password={adminPassword};Database=postgres";
+            $"Host={host};Port={port};Username={adminUser};Password={adminPassword};Database=postgres;Timeout=30;";
         
         await using var connection = new NpgsqlConnection(adminConnectionString);
-        await connection.OpenAsync();
-
-        // 1. Crear el usuario (rol)
-        var createUserCommand = new NpgsqlCommand(
-            $"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_user WHERE usename = '{username}') THEN CREATE USER \"{username}\" WITH PASSWORD '{password}'; END IF; END $$;",
-            connection);
-        await createUserCommand.ExecuteNonQueryAsync();
-
-        // 2. Crear la base de datos
-        var createDbCommand = new NpgsqlCommand(
-            $"CREATE DATABASE \"{databaseName}\" OWNER \"{username}\";",
-            connection);
-        
         try
         {
-            await createDbCommand.ExecuteNonQueryAsync();
+            await connection.OpenAsync();
         }
-        catch (PostgresException ex) when (ex.SqlState == "42P04") // Database already exists
+        catch (Exception ex)
         {
-            // Si la base de datos ya existe, solo asignamos el owner
-            var alterDbCommand = new NpgsqlCommand(
-                $"ALTER DATABASE \"{databaseName}\" OWNER TO \"{username}\";",
-                connection);
-            await alterDbCommand.ExecuteNonQueryAsync();
+            throw new InvalidOperationException($"Error conectando a PostgreSQL: {ex.Message}", ex);
         }
 
-        // 3. Dar todos los privilegios al usuario
-        var grantCommand = new NpgsqlCommand(
-            $"GRANT ALL PRIVILEGES ON DATABASE \"{databaseName}\" TO \"{username}\";",
-            connection);
-        await grantCommand.ExecuteNonQueryAsync();
+        try
+        {
+            // Escapar identificadores para PostgreSQL (usar comillas dobles)
+            var escapedUsername = $"\"{username.Replace("\"", "\"\"")}\"";
+            var escapedDatabaseName = $"\"{databaseName.Replace("\"", "\"\"")}\"";
+            
+            // 1. Crear el usuario (rol)
+            var createUserCommand = new NpgsqlCommand(
+                $"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '{username}') THEN CREATE USER {escapedUsername} WITH PASSWORD '{password.Replace("'", "''")}'; END IF; END $$;",
+                connection);
+            await createUserCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Usuario PostgreSQL '{username}' creado o ya existe");
+
+            // 2. Crear la base de datos
+            var createDbCommand = new NpgsqlCommand(
+                $"CREATE DATABASE {escapedDatabaseName} OWNER {escapedUsername};",
+                connection);
+            
+            try
+            {
+                await createDbCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' creada");
+            }
+            catch (PostgresException ex) when (ex.SqlState == "42P04") // Database already exists
+            {
+                // Si la base de datos ya existe, solo asignamos el owner
+                var alterDbCommand = new NpgsqlCommand(
+                    $"ALTER DATABASE {escapedDatabaseName} OWNER TO {escapedUsername};",
+                    connection);
+                await alterDbCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' ya existe, owner actualizado");
+            }
+
+            // 3. Dar todos los privilegios al usuario
+            var grantCommand = new NpgsqlCommand(
+                $"GRANT ALL PRIVILEGES ON DATABASE {escapedDatabaseName} TO {escapedUsername};",
+                connection);
+            await grantCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Permisos otorgados a '{username}' en '{databaseName}'");
+        }
+        catch (PostgresException ex)
+        {
+            throw new InvalidOperationException($"Error creando base de datos PostgreSQL: {ex.Message} (SQL State: {ex.SqlState})", ex);
+        }
     }
     
     private async Task DeletePostgreSqlDatabaseAsync(string databaseName, string username)
