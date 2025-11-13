@@ -65,146 +65,155 @@ namespace ZenCloud.Services.Implementations
 
         public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
         {
-            try
+            var instance = await _context.DatabaseInstances
+                .Include(i => i.Engine)
+                .FirstOrDefaultAsync(x => x.InstanceId == instanceId);
+    
+            if (instance == null) 
+                throw new KeyNotFoundException($"Database instance {instanceId} not found");
+    
+            // ✅ Validar que el usuario es propietario de la instancia
+            if (instance.UserId != userId)
+                throw new UnauthorizedAccessException("You don't have access to this database instance");
+    
+            // ✅ Desencriptar y sanear contraseña
+            var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+    
+            if (decryptedPassword.IndexOf('\0') >= 0)
             {
-                await ValidateUserAccessAsync(instanceId, userId);
-                
-                var instance = await _context.DatabaseInstances.FirstOrDefaultAsync(x => x.InstanceId == instanceId);
-                if (instance == null) throw new KeyNotFoundException($"Database instance {instanceId} not found");
-                
-                // ✅ Desencriptar y sanear la contraseña AQUÍ, antes de cualquier uso
-                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
-                
-                if (decryptedPassword.IndexOf('\0') >= 0)
-                {
-                    _logger.LogError("Decrypted password for instance {InstanceId} contains embedded nulls", instanceId);
-                    throw new ArgumentException("The database password contains invalid characters (embedded nulls). Please reconfigure the connection.", nameof(instance.DatabasePasswordHash));
-                }
-                
-                if (string.IsNullOrWhiteSpace(decryptedPassword))
-                {
-                    _logger.LogError("Empty password for instance {InstanceId} after decryption", instanceId);
-                    throw new ArgumentException("Database password is empty after decryption.", nameof(instance.DatabasePasswordHash));
-                }
-                
-                // Ahora procede con MySQL o PostgreSQL sabiendo que la contraseña es válida
-                var result = instance.DatabaseType == "PostgreSQL"
-                    ? await GetPostgreSQLTablesAsync(instance)
-                    : await GetMySQLTablesAsync(instance);
-                    
-                return result.Success ? 
-                    result.Rows.Cast<object[]>().Select(r => new TableInfo { Name = r[0]?.ToString() }).ToList() :
-                    throw new Exception($"Error fetching tables: {result.ErrorMessage}");
+                _logger.LogError("Password contains embedded nulls for instance {InstanceId}", instanceId);
+                throw new ArgumentException("The database password contains invalid characters (embedded nulls). Please reconfigure the connection.");
             }
-            catch (UnauthorizedAccessException)
-            {
-                throw;
-            }
-            catch (KeyNotFoundException)
-            {
-                throw;
-            }
-            catch (ArgumentException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error inesperado en GetTablesAsync para instanceId: {InstanceId}", instanceId);
-                throw new Exception($"Error al obtener las tablas: {ex.Message}");
-            }
+    
+            if (string.IsNullOrWhiteSpace(decryptedPassword))
+                throw new ArgumentException("Database password is empty after decryption.");
+    
+            // ✅ Determina tipo de BD desde Engine.EngineName (enum DatabaseEngineType)
+            QueryResult result = instance.Engine?.EngineName == DatabaseEngineType.PostgreSQL
+                ? await GetPostgreSQLTablesAsync(instance)
+                : await GetMySQLTablesAsync(instance);
+    
+            if (!result.Success)
+                throw new Exception($"Error fetching tables: {result.ErrorMessage}");
+    
+            // ✅ Mapea a TableInfo con campos: TableName, TableType, RowCount, CreateTime
+            return result.Rows
+                .Cast<object[]>()
+                .Select(r => new TableInfo 
+                { 
+                    TableName = r[0]?.ToString() ?? "Unknown",
+                    TableType = r.Length > 1 ? r[1]?.ToString() ?? "TABLE" : "TABLE",
+                    RowCount = r.Length > 2 ? Convert.ToInt64(r[2] ?? 0) : 0,
+                    CreateTime = r.Length > 3 && r[3] is DateTime dt ? dt : DateTime.UtcNow
+                })
+                .ToList();
+}
+
+private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
+{
+    var result = new QueryResult();
+    try
+    {
+        var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+        decryptedPassword = decryptedPassword.Replace("\0", string.Empty).TrimEnd();
+        
+        var connectionString = $"Server={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Uid={instance.DatabaseUser};Pwd={decryptedPassword};";
+        
+        await using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        // ✅ Query con TABLE_TYPE, row count y creación
+        const string query = @"
+            SELECT 
+                t.TABLE_NAME,
+                t.TABLE_TYPE,
+                COALESCE(s.TABLE_ROWS, 0) as RowCount,
+                t.CREATE_TIME
+            FROM INFORMATION_SCHEMA.TABLES t
+            LEFT JOIN INFORMATION_SCHEMA.TABLE_STATISTICS s 
+                ON s.TABLE_SCHEMA = t.TABLE_SCHEMA AND s.TABLE_NAME = t.TABLE_NAME
+            WHERE t.TABLE_SCHEMA = DATABASE()
+            ORDER BY t.TABLE_NAME";
+        
+        await using var command = new MySqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        
+        for (int i = 0; i < reader.FieldCount; i++)
+            result.Columns.Add(reader.GetName(i));
+        
+        while (await reader.ReadAsync())
+        {
+            var row = new object[reader.FieldCount];
+            for (int i = 0; i < reader.FieldCount; i++)
+                row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            result.Rows.Add(row);
         }
         
-        private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
-        {
-            var result = new QueryResult();
-            try
-            {
-                // ✅ Ya está saneada en GetTablesAsync, pero por seguridad valida aquí también
-                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
-                decryptedPassword = decryptedPassword.Replace("\0", string.Empty).TrimEnd();
-                
-                var connectionString = $"Server={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Uid={instance.DatabaseUser};Pwd={decryptedPassword};";
-                
-                using var connection = new MySqlConnection(connectionString);
-                await connection.OpenAsync();
-                
-                // Consulta para MySQL usando INFORMATION_SCHEMA
-                var query = @"
-                    SELECT 
-                        TABLE_NAME as TableName,
-                        TABLE_TYPE as TableType,
-                        COALESCE(TABLE_ROWS, 0) as RowCount
-                    FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_SCHEMA = @databaseName
-                    ORDER BY TABLE_NAME";
+        result.Success = true;
+    }
+    catch (Exception ex)
+    {
+        result.Success = false;
+        result.ErrorMessage = ex.Message;
+        _logger.LogError(ex, "Error obteniendo tablas de MySQL para instanceId: {InstanceId}", instance.InstanceId);
+    }
+    
+    return result;
+}
 
-                var parameters = new { databaseName = instance.DatabaseName };
-                result = await ExecuteParameterizedQueryAsync(connection, query, parameters);
-            }
-            catch (Exception ex)
-            {
-                result.Success = false;
-                result.ErrorMessage = ex.Message;
-                _logger.LogError(ex, "Error obteniendo tablas de MySQL para instanceId: {InstanceId}", instance.InstanceId);
-            }
-            return result;
-        }
-
-        private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instance)
+private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instance)
+{
+    var result = new QueryResult();
+    try
+    {
+        var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+        decryptedPassword = decryptedPassword.Replace("\0", string.Empty).TrimEnd();
+        
+        var connectionString = $"Host={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Username={instance.DatabaseUser};Password={decryptedPassword};Timeout=30;";
+        
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        // ✅ Query con table type, row count y creación
+        const string query = @"
+            SELECT 
+                t.tablename,
+                'BASE TABLE'::text as table_type,
+                COALESCE(s.n_live_tup, 0)::bigint as row_count,
+                COALESCE(
+                    (SELECT creation_time FROM pg_class WHERE relname = t.tablename LIMIT 1),
+                    CURRENT_TIMESTAMP
+                ) as create_time
+            FROM pg_catalog.pg_tables t
+            LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
+            WHERE t.schemaname = 'public'
+            ORDER BY t.tablename";
+        
+        await using var command = new NpgsqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        
+        for (int i = 0; i < reader.FieldCount; i++)
+            result.Columns.Add(reader.GetName(i));
+        
+        while (await reader.ReadAsync())
         {
-            var result = new QueryResult();
-            
-            try
-            {
-                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash);
-                var connectionString = $"Host={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Username={instance.DatabaseUser};Password={decryptedPassword};Timeout=30;";
-                
-                await using var connection = new NpgsqlConnection(connectionString);
-                await connection.OpenAsync();
-                
-                // Consulta para PostgreSQL usando pg_catalog
-                var query = @"
-                    SELECT 
-                        tablename as TableName,
-                        'BASE TABLE' as TableType,
-                        COALESCE(n_live_tup, 0) as RowCount
-                    FROM pg_catalog.pg_tables t
-                    LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
-                    WHERE schemaname = 'public'
-                    ORDER BY tablename";
-                
-                await using var command = new NpgsqlCommand(query, connection);
-                await using var reader = await command.ExecuteReaderAsync();
-                
-                // Obtener metadatos de columnas
-                for (int i = 0; i < reader.FieldCount; i++)
-                {
-                    result.Columns.Add(reader.GetName(i));
-                }
-                
-                // Obtener datos
-                while (await reader.ReadAsync())
-                {
-                    var row = new object[reader.FieldCount];
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                    }
-                    result.Rows.Add(row);
-                }
-                
-                result.Success = true;
-            }
-            catch (Exception ex)
-            {
-                result.Success = false;
-                result.ErrorMessage = ex.Message;
-                _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
-            }
-            
-            return result;
+            var row = new object[reader.FieldCount];
+            for (int i = 0; i < reader.FieldCount; i++)
+                row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            result.Rows.Add(row);
         }
+        
+        result.Success = true;
+    }
+    catch (Exception ex)
+    {
+        result.Success = false;
+        result.ErrorMessage = ex.Message;
+        _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
+    }
+    
+    return result;
+}
 
         public async Task<TableSchema> GetTableSchemaAsync(Guid instanceId, Guid userId, string tableName)
         {

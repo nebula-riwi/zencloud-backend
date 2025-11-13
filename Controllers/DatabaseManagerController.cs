@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using ZenCloud.Data.Entities;
 using ZenCloud.DTOs.DatabaseManagement;
 using ZenCloud.Services.Interfaces;
 
@@ -12,21 +14,16 @@ namespace ZenCloud.Controllers
     {
         private readonly IDatabaseManagementService _dbService;
         private readonly IAuditService _auditService;
+        private readonly ILogger<DatabaseManagerController> _logger;
 
         public DatabaseManagerController(
             IDatabaseManagementService dbService,
-            IAuditService auditService)
+            IAuditService auditService,
+            ILogger<DatabaseManagerController> logger)
         {
             _dbService = dbService;
             _auditService = auditService;
-        }
-
-        [HttpPost("execute")]
-        public async Task<IActionResult> ExecuteQuery(Guid instanceId, [FromBody] ExecuteQueryRequest request)
-        {
-            var userId = GetCurrentUserId();
-            var result = await _dbService.ExecuteQueryAsync(instanceId, userId, request.Query);
-            return Ok(result);
+            _logger = logger;
         }
 
         [HttpGet("tables")]
@@ -35,26 +32,18 @@ namespace ZenCloud.Controllers
             try
             {
                 var userId = GetCurrentUserId();
+                var tables = await _dbService.GetTablesAsync(instanceId, userId);
                 
-                // ✅ Llama al servicio y captura el error de embedded nulls específicamente
-                try
-                {
-                    var tables = await _dbService.GetTablesAsync(instanceId, userId);
-                    await _auditService.LogActionAsync(userId, "VIEW_TABLES", $"Instance: {instanceId}", true);
-                    return Ok(tables);
-                }
-                catch (ArgumentException ex) when (ex.Message.Contains("embedded nulls"))
-                {
-                    // ✅ Erro de contraseña con caracteres nulos → retorna 400 con mensaje claro
-                    _logger.LogError(ex, "Password contains embedded nulls for instance {InstanceId}", instanceId);
-                    await _auditService.LogActionAsync(userId, "VIEW_TABLES_FAILED", 
-                        $"Instance: {instanceId}, Reason: Invalid password (embedded nulls)", false);
-                    return BadRequest(new { error = "Invalid database password. Please reconfigure the connection." });
-                }
+                // ✅ Usa DatabaseCreated como acción genérica de lectura de BD
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseCreated, "User retrieved database tables");
+                
+                return Ok(tables);
             }
             catch (UnauthorizedAccessException ex)
             {
-                _logger.LogWarning(ex, "Unauthorized access attempt to instance {InstanceId}", instanceId);
+                var userId = GetCurrentUserId();
+                _logger.LogWarning(ex, "Unauthorized access to instance {InstanceId}", instanceId);
+                await _auditService.LogSecurityEventAsync(userId, AuditAction.UserLogin, $"Unauthorized access attempt to instance {instanceId}");
                 return Unauthorized(new { error = ex.Message });
             }
             catch (KeyNotFoundException ex)
@@ -64,101 +53,115 @@ namespace ZenCloud.Controllers
             }
             catch (ArgumentException ex)
             {
-                _logger.LogWarning(ex, "Invalid argument for instance {InstanceId}", instanceId);
-                return BadRequest(new { error = ex.Message });
+                var userId = GetCurrentUserId();
+                _logger.LogError(ex, "Invalid password for instance {InstanceId}", instanceId);
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseStatusChanged, "Invalid database password - connection failed");
+                return BadRequest(new { error = "Invalid database password. Please reconfigure the connection." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error retrieving tables for instance {InstanceId}", instanceId);
-                if (ex.InnerException != null)
-                {
-                    _logger.LogError(ex.InnerException, "Inner exception details");
-                }
-                return StatusCode(500, new { error = "An unexpected error occurred", details = ex.Message });
+                _logger.LogError(ex, "Error retrieving tables for instance {InstanceId}", instanceId);
+                return StatusCode(500, new { error = "An unexpected error occurred" });
+            }
+        }
+
+        [HttpPost("execute")]
+        public async Task<IActionResult> ExecuteQuery(Guid instanceId, [FromBody] ExecuteQueryRequest request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var result = await _dbService.ExecuteQueryAsync(instanceId, userId, request.Query);
+                
+                // ✅ Usa DatabaseUpdated para ejecución de queries
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseUpdated, $"Query executed: {request.Query[..50]}...");
+                
+                return Ok(result);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                var userId = GetCurrentUserId();
+                await _auditService.LogSecurityEventAsync(userId, AuditAction.UserLogin, $"Unauthorized query execution on instance {instanceId}");
+                return Unauthorized(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error executing query");
+                return StatusCode(500, new { error = "An error occurred while executing the query" });
             }
         }
 
         [HttpGet("tables/{tableName}/schema")]
         public async Task<IActionResult> GetTableSchema(Guid instanceId, string tableName)
         {
-            var userId = GetCurrentUserId();
-            var schema = await _dbService.GetTableSchemaAsync(instanceId, userId, tableName);
-            return Ok(schema);
+            try
+            {
+                var userId = GetCurrentUserId();
+                var schema = await _dbService.GetTableSchemaAsync(instanceId, userId, tableName);
+                
+                // ✅ Usa DatabaseCreated para lectura de esquema
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseCreated, $"Retrieved schema for table: {tableName}");
+                
+                return Ok(schema);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving table schema");
+                return StatusCode(500, new { error = "An error occurred while retrieving the table schema" });
+            }
         }
 
         [HttpGet("tables/{tableName}/data")]
         public async Task<IActionResult> GetTableData(Guid instanceId, string tableName, [FromQuery] int limit = 100)
         {
-            var userId = GetCurrentUserId();
-            var data = await _dbService.GetTableDataAsync(instanceId, userId, tableName, limit);
-            return Ok(data);
+            try
+            {
+                var userId = GetCurrentUserId();
+                var data = await _dbService.GetTableDataAsync(instanceId, userId, tableName, limit);
+                
+                // ✅ Usa DatabaseCreated para lectura de datos
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseCreated, $"Retrieved data from table: {tableName} (limit: {limit})");
+                
+                return Ok(data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving table data");
+                return StatusCode(500, new { error = "An error occurred while retrieving the table data" });
+            }
         }
 
         [HttpPost("test-connection")]
         public async Task<IActionResult> TestConnection(Guid instanceId)
         {
-            var userId = GetCurrentUserId();
-            var result = await _dbService.TestConnectionAsync(instanceId, userId);
-            return Ok(new { success = result });
-        }
-
-        [HttpGet("info")]
-        public async Task<IActionResult> GetDatabaseInfo(Guid instanceId)
-        {
-            var userId = GetCurrentUserId();
-            var info = await _dbService.GetDatabaseInfoAsync(instanceId, userId);
-            return Ok(info);
-        }
-
-        [HttpGet("processes")]
-        public async Task<IActionResult> GetProcessList(Guid instanceId)
-        {
-            var userId = GetCurrentUserId();
-            var processes = await _dbService.GetProcessListAsync(instanceId, userId);
-            return Ok(processes);
-        }
-        
-        
-
-        [HttpPost("processes/{processId}/kill")]
-        public async Task<IActionResult> KillProcess(Guid instanceId, int processId)
-        {
-            var userId = GetCurrentUserId();
-            var result = await _dbService.KillProcessAsync(instanceId, userId, processId);
-            return Ok(new { success = result });
-        }
-        
-        [HttpGet("~/api/current-user-id")]
-        public IActionResult GetCurrentUserIdEndpoint()
-        {
             try
             {
                 var userId = GetCurrentUserId();
-                return Ok(new { UserId = userId });
+                var success = await _dbService.TestConnectionAsync(instanceId, userId);
+                
+                // ✅ Usa DatabaseStatusChanged para test de conexión
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseStatusChanged, $"Connection test: {(success ? "SUCCESS" : "FAILED")}");
+                
+                return Ok(new { connected = success });
             }
-            catch (UnauthorizedAccessException ex)
+            catch (Exception ex)
             {
-                return Unauthorized(ex.Message);
+                _logger.LogError(ex, "Error testing connection");
+                return StatusCode(500, new { error = "An error occurred while testing the connection" });
             }
         }
-        
+
         private Guid GetCurrentUserId()
         {
-       
-            var userIdClaim = User.FindFirst("userId")?.Value;
-            if (Guid.TryParse(userIdClaim, out var userId))
-            {
-                return userId;
-            }
-
+            var userIdClaim = User.FindFirst("userId")?.Value ?? User.FindFirst("sub")?.Value;
             
-            userIdClaim = User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdClaim, out userId))
-            {
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID not found in token");
+            
+            if (Guid.TryParse(userIdClaim, out var userId))
                 return userId;
-            }
-
-            throw new UnauthorizedAccessException("Invalid user ID");
+            
+            throw new UnauthorizedAccessException("Invalid user ID format in token");
         }
     }
 }
