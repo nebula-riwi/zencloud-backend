@@ -78,7 +78,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         using var connection = new MySqlConnection(adminConnectionString);
         try
         {
-            await connection.OpenAsync();
+        await connection.OpenAsync();
         }
         catch (Exception ex)
         {
@@ -89,26 +89,26 @@ public class DatabaseEngineService : IDatabaseEngineService
         {
             // 1. Crear la base de datos
             var createDbCommand = new MySqlCommand($"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", connection);
-            await createDbCommand.ExecuteNonQueryAsync();
+        await createDbCommand.ExecuteNonQueryAsync();
             Console.WriteLine($"Base de datos MySQL '{databaseName}' creada o ya existe");
-            
-            // 2. Crear el usuario
-            var createUserCommand = new MySqlCommand(
-                $"CREATE USER IF NOT EXISTS '{username}'@'%' IDENTIFIED BY '{password}';", 
-                connection);
-            await createUserCommand.ExecuteNonQueryAsync();
+        
+        // 2. Crear el usuario
+        var createUserCommand = new MySqlCommand(
+            $"CREATE USER IF NOT EXISTS '{username}'@'%' IDENTIFIED BY '{password}';", 
+            connection);
+        await createUserCommand.ExecuteNonQueryAsync();
             Console.WriteLine($"Usuario MySQL '{username}' creado o ya existe");
 
-            // 3. Asignar permisos
-            var grantCommand = new MySqlCommand(
-                $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{username}'@'%';", 
-                connection);
-            await grantCommand.ExecuteNonQueryAsync();
+        // 3. Asignar permisos
+        var grantCommand = new MySqlCommand(
+            $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{username}'@'%';", 
+            connection);
+        await grantCommand.ExecuteNonQueryAsync();
             Console.WriteLine($"Permisos otorgados a '{username}' en '{databaseName}'");
 
-            // 4. Aplicar cambios
-            var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
-            await flushCommand.ExecuteNonQueryAsync();
+        // 4. Aplicar cambios
+        var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
+        await flushCommand.ExecuteNonQueryAsync();
             Console.WriteLine($"Privilegios aplicados");
         }
         catch (MySqlException ex)
@@ -161,7 +161,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         await using var connection = new NpgsqlConnection(adminConnectionString);
         try
         {
-            await connection.OpenAsync();
+        await connection.OpenAsync();
         }
         catch (Exception ex)
         {
@@ -173,39 +173,39 @@ public class DatabaseEngineService : IDatabaseEngineService
             // Escapar identificadores para PostgreSQL (usar comillas dobles)
             var escapedUsername = $"\"{username.Replace("\"", "\"\"")}\"";
             var escapedDatabaseName = $"\"{databaseName.Replace("\"", "\"\"")}\"";
-            
-            // 1. Crear el usuario (rol)
-            var createUserCommand = new NpgsqlCommand(
+
+        // 1. Crear el usuario (rol)
+        var createUserCommand = new NpgsqlCommand(
                 $"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '{username}') THEN CREATE USER {escapedUsername} WITH PASSWORD '{password.Replace("'", "''")}'; END IF; END $$;",
-                connection);
-            await createUserCommand.ExecuteNonQueryAsync();
+            connection);
+        await createUserCommand.ExecuteNonQueryAsync();
             Console.WriteLine($"Usuario PostgreSQL '{username}' creado o ya existe");
 
-            // 2. Crear la base de datos
-            var createDbCommand = new NpgsqlCommand(
+        // 2. Crear la base de datos
+        var createDbCommand = new NpgsqlCommand(
                 $"CREATE DATABASE {escapedDatabaseName} OWNER {escapedUsername};",
-                connection);
-            
-            try
-            {
-                await createDbCommand.ExecuteNonQueryAsync();
+            connection);
+        
+        try
+        {
+            await createDbCommand.ExecuteNonQueryAsync();
                 Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' creada");
-            }
-            catch (PostgresException ex) when (ex.SqlState == "42P04") // Database already exists
-            {
-                // Si la base de datos ya existe, solo asignamos el owner
-                var alterDbCommand = new NpgsqlCommand(
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P04") // Database already exists
+        {
+            // Si la base de datos ya existe, solo asignamos el owner
+            var alterDbCommand = new NpgsqlCommand(
                     $"ALTER DATABASE {escapedDatabaseName} OWNER TO {escapedUsername};",
-                    connection);
-                await alterDbCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' ya existe, owner actualizado");
-            }
-
-            // 3. Dar todos los privilegios al usuario
-            var grantCommand = new NpgsqlCommand(
-                $"GRANT ALL PRIVILEGES ON DATABASE {escapedDatabaseName} TO {escapedUsername};",
                 connection);
-            await grantCommand.ExecuteNonQueryAsync();
+            await alterDbCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' ya existe, owner actualizado");
+        }
+
+        // 3. Dar todos los privilegios al usuario
+        var grantCommand = new NpgsqlCommand(
+                $"GRANT ALL PRIVILEGES ON DATABASE {escapedDatabaseName} TO {escapedUsername};",
+            connection);
+        await grantCommand.ExecuteNonQueryAsync();
             Console.WriteLine($"Permisos otorgados a '{username}' en '{databaseName}'");
         }
         catch (PostgresException ex)

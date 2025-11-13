@@ -43,7 +43,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         return await _databaseRepository.GetByIdAsync(instanceId);
     }
 
-    public async Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId)
+    public async Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId, string? databaseName = null)
     {
         var user = await _userRepository.GetByIdAsync(userId);
         if (user == null)
@@ -63,9 +63,22 @@ public class DatabaseInstanceService : IDatabaseInstanceService
             throw new ConflictException("Has alcanzado el límite de bases de datos para tu plan actual");
         }
         
-        var databaseName = _credentialsGenerator.GenerateDatabaseName(
+        // Si no se proporciona un nombre, generar uno automáticamente
+        if (string.IsNullOrWhiteSpace(databaseName))
+        {
+            databaseName = _credentialsGenerator.GenerateDatabaseName(
             engine.EngineName.ToString(),
             user.UserId);
+        }
+        else
+        {
+            // Validar y normalizar el nombre proporcionado
+            databaseName = databaseName.ToLower().Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_-]+$"))
+            {
+                throw new BadRequestException("El nombre de la base de datos solo puede contener letras minúsculas, números, guiones y guiones bajos");
+            }
+        }
         
         var username = _credentialsGenerator.GenerateUsername(databaseName);
 

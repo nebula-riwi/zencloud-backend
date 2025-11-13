@@ -32,9 +32,28 @@ namespace ZenCloud.Controllers
         [HttpGet("tables")]
         public async Task<IActionResult> GetTables(Guid instanceId)
         {
+            try
+            {
             var userId = GetCurrentUserId();
             var tables = await _dbService.GetTablesAsync(instanceId, userId);
             return Ok(tables);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error al obtener las tablas: " + ex.Message });
+            }
         }
 
         [HttpGet("tables/{tableName}/schema")]

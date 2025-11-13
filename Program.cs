@@ -116,7 +116,7 @@ builder.Services.AddCors(options =>
                 .AllowAnyOrigin()
                 .AllowAnyHeader()
                 .AllowAnyMethod();
-        });
+    });
     }
 });
 builder.Services.AddEndpointsApiExplorer();
@@ -313,15 +313,12 @@ app.UseSwaggerUI(options =>
 // Comentado temporalmente para debugging
 // app.UseHttpsRedirection();
 
-// Autenticación y autorización
+// Autenticación y autorización (debe ir después de UseRouting)
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Endpoints
-app.UseEndpoints(endpoints =>
-{
-    endpoints.MapControllers();
-});
+// Mapear controladores
+app.MapControllers();
 
 // Endpoint raíz de verificación
 app.MapGet("/", () => Results.Json(new

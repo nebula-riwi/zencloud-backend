@@ -106,7 +106,7 @@ public class DatabaseInstanceController : ControllerBase
     [SwaggerResponse(422, "Errores de validación")]
     public async Task<IActionResult> CreateDatabase([FromBody] CreateDatabaseRequestDto request)
     {
-        var database = await _databaseInstanceService.CreateDatabaseInstanceAsync(request.UserId, request.EngineId);
+        var database = await _databaseInstanceService.CreateDatabaseInstanceAsync(request.UserId, request.EngineId, request.DatabaseName);
         
         var response = new DatabaseInstanceResponseDto
         {
@@ -152,13 +152,18 @@ public class DatabaseInstanceController : ControllerBase
     }
 
     [HttpGet("my-databases")]
-       [Authorize]
-       public async Task<IActionResult> GetMyDatabases()
-       {
-           try
-           { 
-           
-            var userIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value; 
+    [SwaggerOperation(Summary = "Obtener mis bases de datos", Description = "Retorna todas las bases de datos del usuario autenticado")]
+    [SwaggerResponse(200, "Lista de bases de datos")]
+    [SwaggerResponse(401, "No autenticado")]
+    public async Task<IActionResult> GetMyDatabases()
+    {
+        try
+        { 
+            // Buscar userId en múltiples claims (igual que otros controladores)
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ??
+                             User.FindFirst("sub")?.Value;
+            
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
                 return Unauthorized(new { message = "Usuario no autenticado" });

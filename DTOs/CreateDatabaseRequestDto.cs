@@ -7,4 +7,7 @@ public class CreateDatabaseRequestDto
     public Guid UserId { get; set; }
     [Required(ErrorMessage = "El EngineId es Requerido")]
     public Guid EngineId { get; set; }
+    [MaxLength(100, ErrorMessage = "El nombre de la base de datos no puede exceder 100 caracteres")]
+    [RegularExpression(@"^[a-z0-9_-]+$", ErrorMessage = "El nombre solo puede contener letras minúsculas, números, guiones y guiones bajos")]
+    public string? DatabaseName { get; set; }
 }

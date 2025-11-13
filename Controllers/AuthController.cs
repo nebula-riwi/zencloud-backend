@@ -54,7 +54,7 @@ public class AuthController : ControllerBase
         }
 
         return Ok(new { message = "Registro exitoso. Por favor, revise su correo electrónico para verificar su cuenta." });
-    }
+        }
 
     /// <summary>
     /// Verifica el email de un usuario mediante token
