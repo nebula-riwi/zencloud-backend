@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
+using Npgsql;
 using System.Data;
 using System.Text.RegularExpressions;
 using ZenCloud.Data.DbContext;
@@ -64,30 +65,149 @@ namespace ZenCloud.Services.Implementations
 
         public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
         {
-            await ValidateUserAccessAsync(instanceId, userId);
-            
-            var instance = await GetDatabaseInstanceAsync(instanceId);
-            
-            // ✅ Validar nombre de base de datos
-            if (!IsValidDatabaseIdentifier(instance.DatabaseName))
-                throw new ArgumentException("Nombre de base de datos contiene caracteres inválidos");
-            
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            try
+            {
+                await ValidateUserAccessAsync(instanceId, userId);
+                
+                var instance = await GetDatabaseInstanceAsync(instanceId);
+                
+                // ✅ Validar nombre de base de datos
+                if (!IsValidDatabaseIdentifier(instance.DatabaseName))
+                    throw new ArgumentException("Nombre de base de datos contiene caracteres inválidos");
+                
+                // Detectar el tipo de motor de base de datos
+                var engineName = instance.Engine?.EngineName.ToString().ToLower() ?? "mysql";
+                
+                QueryResult result;
+                
+                // Manejar PostgreSQL de forma diferente
+                if (engineName == "postgresql")
+                {
+                    result = await GetPostgreSQLTablesAsync(instance);
+                }
+                else
+                {
+                    // MySQL u otros motores que usan INFORMATION_SCHEMA
+                    using var connection = await _connectionManager.GetConnectionAsync(instance);
+                    
+                    try
+                    {
+                        var query = @"
+                            SELECT 
+                                TABLE_NAME as TableName,
+                                TABLE_TYPE as TableType,
+                                COALESCE(TABLE_ROWS, 0) as RowCount
+                            FROM INFORMATION_SCHEMA.TABLES 
+                            WHERE TABLE_SCHEMA = @databaseName
+                            ORDER BY TABLE_NAME";
 
-            // ✅ CONSULTA PARAMETRIZADA
-            var query = @"
-                SELECT 
-                    TABLE_NAME as TableName,
-                    TABLE_TYPE as TableType,
-                    TABLE_ROWS as RowCount
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = @databaseName
-                ORDER BY TABLE_NAME";
-
-            var parameters = new { databaseName = instance.DatabaseName };
-            var result = await ExecuteParameterizedQueryAsync(connection, query, parameters);
+                        var parameters = new { databaseName = instance.DatabaseName };
+                        result = await ExecuteParameterizedQueryAsync(connection, query, parameters);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error ejecutando consulta parametrizada, intentando consulta directa");
+                        
+                        // Si falla, intentar con consulta directa (sin parámetros)
+                        var directQuery = $@"
+                            SELECT 
+                                TABLE_NAME as TableName,
+                                TABLE_TYPE as TableType,
+                                COALESCE(TABLE_ROWS, 0) as RowCount
+                            FROM INFORMATION_SCHEMA.TABLES 
+                            WHERE TABLE_SCHEMA = '{instance.DatabaseName}'
+                            ORDER BY TABLE_NAME";
+                        
+                        result = await _queryExecutor.ExecuteSafeQueryAsync(connection, directQuery);
+                    }
+                }
+                
+                if (!result.Success)
+                {
+                    _logger.LogError("Error obteniendo tablas: {ErrorMessage}", result.ErrorMessage);
+                    throw new Exception($"Error al obtener las tablas: {result.ErrorMessage ?? "Error desconocido"}");
+                }
+                
+                if (result.Rows.Count == 0)
+                {
+                    _logger.LogInformation("No se encontraron tablas en la base de datos {DatabaseName}", instance.DatabaseName);
+                    return new List<TableInfo>();
+                }
+                
+                return MapToTableInfoList(result);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw;
+            }
+            catch (KeyNotFoundException)
+            {
+                throw;
+            }
+            catch (ArgumentException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error inesperado en GetTablesAsync para instanceId: {InstanceId}", instanceId);
+                throw new Exception($"Error al obtener las tablas: {ex.Message}");
+            }
+        }
+        
+        private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instance)
+        {
+            var result = new QueryResult();
             
-            return MapToTableInfoList(result);
+            try
+            {
+                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash);
+                var connectionString = $"Host={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Username={instance.DatabaseUser};Password={decryptedPassword};Timeout=30;";
+                
+                await using var connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync();
+                
+                // Consulta para PostgreSQL usando pg_catalog
+                var query = @"
+                    SELECT 
+                        tablename as TableName,
+                        'BASE TABLE' as TableType,
+                        COALESCE(n_live_tup, 0) as RowCount
+                    FROM pg_catalog.pg_tables t
+                    LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
+                    WHERE schemaname = 'public'
+                    ORDER BY tablename";
+                
+                await using var command = new NpgsqlCommand(query, connection);
+                await using var reader = await command.ExecuteReaderAsync();
+                
+                // Obtener metadatos de columnas
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    result.Columns.Add(reader.GetName(i));
+                }
+                
+                // Obtener datos
+                while (await reader.ReadAsync())
+                {
+                    var row = new object[reader.FieldCount];
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                    }
+                    result.Rows.Add(row);
+                }
+                
+                result.Success = true;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
+            }
+            
+            return result;
         }
 
         public async Task<TableSchema> GetTableSchemaAsync(Guid instanceId, Guid userId, string tableName)

@@ -34,9 +34,9 @@ namespace ZenCloud.Controllers
         {
             try
             {
-            var userId = GetCurrentUserId();
-            var tables = await _dbService.GetTablesAsync(instanceId, userId);
-            return Ok(tables);
+                var userId = GetCurrentUserId();
+                var tables = await _dbService.GetTablesAsync(instanceId, userId);
+                return Ok(tables);
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -52,7 +52,20 @@ namespace ZenCloud.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Error al obtener las tablas: " + ex.Message });
+                // Log detallado del error para debugging
+                Console.WriteLine($"Error en GetTables para instanceId {instanceId}:");
+                Console.WriteLine($"Mensaje: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                
+                return StatusCode(500, new { 
+                    message = "Error al obtener las tablas", 
+                    error = ex.Message,
+                    instanceId = instanceId.ToString()
+                });
             }
         }
 
