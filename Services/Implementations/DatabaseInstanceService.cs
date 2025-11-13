@@ -14,6 +14,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IPlanValidationService _planValidationService;
     private readonly IDatabaseEngineService _databaseEngineService;
     private readonly IEmailService _emailService;
+    private readonly IEncryptionService _encryptionService;
 
     public DatabaseInstanceService(
         IDatabaseInstanceRepository databaseRepository,
@@ -22,7 +23,8 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         ICredentialsGeneratorService credentialsGenerator,
         IDatabaseEngineService databaseEngineService,
         IPlanValidationService planValidationService,
-        IEmailService emailService)
+        IEmailService emailService,
+        IEncryptionService encryptionService)
     {
         _databaseRepository = databaseRepository;
         _userRepository = userRepository;
@@ -31,6 +33,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         _planValidationService = planValidationService;
         _databaseEngineService = databaseEngineService;
         _emailService = emailService;
+        _encryptionService = encryptionService;
     }
 
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
@@ -74,7 +77,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         {
             // Validar y normalizar el nombre proporcionado
             databaseName = databaseName.ToLower().Trim();
-            if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_-]+$"))
+            if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_\-\+]+$"))
             {
                 throw new BadRequestException("El nombre de la base de datos solo puede contener letras minúsculas, números, guiones y guiones bajos");
             }
@@ -84,8 +87,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
 
         var password = _credentialsGenerator.GeneratePassword();
 
-        var passwordHash = _credentialsGenerator.HashPassword(password);
-        
+        var passwordEncrypted = _encryptionService.Encrypt(password);
         await _databaseEngineService.CreatePhysicalDatabaseAsync(
             engine.EngineName.ToString(),
             databaseName,
@@ -100,11 +102,11 @@ public class DatabaseInstanceService : IDatabaseInstanceService
             EngineId = engine.EngineId,
             DatabaseName = databaseName,
             DatabaseUser = username,
-            DatabasePasswordHash = passwordHash,
+            DatabasePasswordHash = passwordEncrypted,
             AssignedPort = engine.DefaultPort,
             ConnectionString = BuildConnectionString(engine, databaseName, username, password),
             Status = DatabaseInstanceStatus.Active,
-            ServerIpAddress = "localhost", // TODO: Configurar IP del servidor
+            ServerIpAddress = "168.119.182.243",
             CreatedAt = DateTime.UtcNow
 
         };
