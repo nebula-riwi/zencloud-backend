@@ -35,37 +35,46 @@ namespace ZenCloud.Controllers
             try
             {
                 var userId = GetCurrentUserId();
-                var tables = await _dbService.GetTablesAsync(instanceId, userId);
-                return Ok(tables);
+                
+                // ✅ Llama al servicio y captura el error de embedded nulls específicamente
+                try
+                {
+                    var tables = await _dbService.GetTablesAsync(instanceId, userId);
+                    await _auditService.LogActionAsync(userId, "VIEW_TABLES", $"Instance: {instanceId}", true);
+                    return Ok(tables);
+                }
+                catch (ArgumentException ex) when (ex.Message.Contains("embedded nulls"))
+                {
+                    // ✅ Erro de contraseña con caracteres nulos → retorna 400 con mensaje claro
+                    _logger.LogError(ex, "Password contains embedded nulls for instance {InstanceId}", instanceId);
+                    await _auditService.LogActionAsync(userId, "VIEW_TABLES_FAILED", 
+                        $"Instance: {instanceId}, Reason: Invalid password (embedded nulls)", false);
+                    return BadRequest(new { error = "Invalid database password. Please reconfigure the connection." });
+                }
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Unauthorized(new { message = ex.Message });
+                _logger.LogWarning(ex, "Unauthorized access attempt to instance {InstanceId}", instanceId);
+                return Unauthorized(new { error = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
-                return NotFound(new { message = ex.Message });
+                _logger.LogWarning(ex, "Instance not found: {InstanceId}", instanceId);
+                return NotFound(new { error = ex.Message });
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                _logger.LogWarning(ex, "Invalid argument for instance {InstanceId}", instanceId);
+                return BadRequest(new { error = ex.Message });
             }
             catch (Exception ex)
             {
-                // Log detallado del error para debugging
-                Console.WriteLine($"Error en GetTables para instanceId {instanceId}:");
-                Console.WriteLine($"Mensaje: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                _logger.LogError(ex, "Unexpected error retrieving tables for instance {InstanceId}", instanceId);
                 if (ex.InnerException != null)
                 {
-                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                    _logger.LogError(ex.InnerException, "Inner exception details");
                 }
-                
-                return StatusCode(500, new { 
-                    message = "Error al obtener las tablas", 
-                    error = ex.Message,
-                    instanceId = instanceId.ToString()
-                });
+                return StatusCode(500, new { error = "An unexpected error occurred", details = ex.Message });
             }
         }
 
