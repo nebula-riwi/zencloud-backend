@@ -122,32 +122,41 @@ private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
     try
     {
         var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
-        decryptedPassword = decryptedPassword.Replace("\0", string.Empty).TrimEnd();
-        
-        var connectionString = $"Server={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Uid={instance.DatabaseUser};Pwd={decryptedPassword};";
-        
-        await using var connection = new MySqlConnection(connectionString);
+        decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
+
+        // Use MySqlConnectionStringBuilder to avoid malformed connection strings
+        var builder = new MySqlConnector.MySqlConnectionStringBuilder
+        {
+            Server = instance.ServerIpAddress,
+            Port = (uint)instance.AssignedPort,
+            Database = instance.DatabaseName,
+            UserID = instance.DatabaseUser,
+            Password = decryptedPassword,
+            // Ajusta otras opciones si necesitas (SslMode, ConnectionTimeout, etc.)
+        };
+
+        _logger.LogInformation("MySQL connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
+            instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length);
+
+        await using var connection = new MySqlConnector.MySqlConnection(builder.ConnectionString);
         await connection.OpenAsync();
-        
-        // ✅ Query con TABLE_TYPE, row count y creación
+
         const string query = @"
             SELECT 
                 t.TABLE_NAME,
                 t.TABLE_TYPE,
-                COALESCE(s.TABLE_ROWS, 0) as RowCount,
+                COALESCE(t.TABLE_ROWS, 0) as RowCount,
                 t.CREATE_TIME
             FROM INFORMATION_SCHEMA.TABLES t
-            LEFT JOIN INFORMATION_SCHEMA.TABLE_STATISTICS s 
-                ON s.TABLE_SCHEMA = t.TABLE_SCHEMA AND s.TABLE_NAME = t.TABLE_NAME
             WHERE t.TABLE_SCHEMA = DATABASE()
             ORDER BY t.TABLE_NAME";
-        
-        await using var command = new MySqlCommand(query, connection);
+
+        await using var command = new MySqlConnector.MySqlCommand(query, connection);
         await using var reader = await command.ExecuteReaderAsync();
-        
+
         for (int i = 0; i < reader.FieldCount; i++)
             result.Columns.Add(reader.GetName(i));
-        
+
         while (await reader.ReadAsync())
         {
             var row = new object[reader.FieldCount];
@@ -155,7 +164,7 @@ private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
                 row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
             result.Rows.Add(row);
         }
-        
+
         result.Success = true;
     }
     catch (Exception ex)
@@ -164,7 +173,7 @@ private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
         result.ErrorMessage = ex.Message;
         _logger.LogError(ex, "Error obteniendo tablas de MySQL para instanceId: {InstanceId}", instance.InstanceId);
     }
-    
+
     return result;
 }
 
@@ -174,34 +183,42 @@ private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instan
     try
     {
         var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
-        decryptedPassword = decryptedPassword.Replace("\0", string.Empty).TrimEnd();
-        
-        var connectionString = $"Host={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Username={instance.DatabaseUser};Password={decryptedPassword};Timeout=30;";
-        
-        await using var connection = new NpgsqlConnection(connectionString);
+        decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
+
+        // Use NpgsqlConnectionStringBuilder to build a safe connection string
+        var pgBuilder = new Npgsql.NpgsqlConnectionStringBuilder
+        {
+            Host = instance.ServerIpAddress,
+            Port = instance.AssignedPort,
+            Database = instance.DatabaseName,
+            Username = instance.DatabaseUser,
+            Password = decryptedPassword,
+            Timeout = 30
+        };
+
+        _logger.LogInformation("Postgres connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
+            instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length);
+
+        await using var connection = new Npgsql.NpgsqlConnection(pgBuilder.ConnectionString);
         await connection.OpenAsync();
-        
-        // ✅ Query con table type, row count y creación
+
         const string query = @"
             SELECT 
                 t.tablename,
                 'BASE TABLE'::text as table_type,
                 COALESCE(s.n_live_tup, 0)::bigint as row_count,
-                COALESCE(
-                    (SELECT creation_time FROM pg_class WHERE relname = t.tablename LIMIT 1),
-                    CURRENT_TIMESTAMP
-                ) as create_time
+                CURRENT_TIMESTAMP as create_time
             FROM pg_catalog.pg_tables t
             LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
             WHERE t.schemaname = 'public'
             ORDER BY t.tablename";
-        
-        await using var command = new NpgsqlCommand(query, connection);
+
+        await using var command = new Npgsql.NpgsqlCommand(query, connection);
         await using var reader = await command.ExecuteReaderAsync();
-        
+
         for (int i = 0; i < reader.FieldCount; i++)
             result.Columns.Add(reader.GetName(i));
-        
+
         while (await reader.ReadAsync())
         {
             var row = new object[reader.FieldCount];
@@ -209,7 +226,7 @@ private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instan
                 row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
             result.Rows.Add(row);
         }
-        
+
         result.Success = true;
     }
     catch (Exception ex)
@@ -218,7 +235,7 @@ private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instan
         result.ErrorMessage = ex.Message;
         _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
     }
-    
+
     return result;
 }
 
