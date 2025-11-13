@@ -90,20 +90,29 @@ namespace ZenCloud.Services.Implementations
         {
             var upperQuery = query.ToUpper().Trim();
 
+            // Validar patrones peligrosos
             foreach (var pattern in _dangerousPatterns)
             {
                 if (Regex.IsMatch(upperQuery, pattern, RegexOptions.IgnoreCase))
                 {
-                    throw new UnauthorizedAccessException ($"Consulta no permitida por seguridad: {pattern}");
+                    throw new UnauthorizedAccessException($"Consulta no permitida por seguridad: {pattern}");
                 }
             }
 
-            if (upperQuery.StartsWith("DROP ") || upperQuery.StartsWith("ALTER ") || upperQuery.StartsWith("CREATE "))
+            // Permitir CREATE TABLE específicamente
+            if (upperQuery.StartsWith("CREATE TABLE"))
             {
-                throw new UnauthorizedAccessException ("Modificaciones de estructura no permitidas");
+                return; // Permitir CREATE TABLE
+            }
+
+            // Bloquear otros comandos DDL peligrosos
+            if (upperQuery.StartsWith("DROP ") || 
+                upperQuery.StartsWith("ALTER ") || 
+                upperQuery.StartsWith("CREATE "))
+            {
+                throw new UnauthorizedAccessException("Modificaciones de estructura no permitidas");
             }
         }
-
         private bool IsSelectQuery(string query)
         {
             return query.Trim().ToUpper().StartsWith("SELECT");
