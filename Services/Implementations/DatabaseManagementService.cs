@@ -69,72 +69,32 @@ namespace ZenCloud.Services.Implementations
             {
                 await ValidateUserAccessAsync(instanceId, userId);
                 
-                var instance = await GetDatabaseInstanceAsync(instanceId);
+                var instance = await _context.DatabaseInstances.FirstOrDefaultAsync(x => x.InstanceId == instanceId);
+                if (instance == null) throw new KeyNotFoundException($"Database instance {instanceId} not found");
                 
-                // ✅ Validar nombre de base de datos
-                if (!IsValidDatabaseIdentifier(instance.DatabaseName))
-                    throw new ArgumentException("Nombre de base de datos contiene caracteres inválidos");
+                // ✅ Desencriptar y sanear la contraseña AQUÍ, antes de cualquier uso
+                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
                 
-                // Detectar el tipo de motor de base de datos
-                var engineName = instance.Engine?.EngineName.ToString().ToLower() ?? "mysql";
-                
-                QueryResult result;
-                
-                // Manejar PostgreSQL de forma diferente
-                if (engineName == "postgresql")
+                if (decryptedPassword.IndexOf('\0') >= 0)
                 {
-                    result = await GetPostgreSQLTablesAsync(instance);
+                    _logger.LogError("Decrypted password for instance {InstanceId} contains embedded nulls", instanceId);
+                    throw new ArgumentException("The database password contains invalid characters (embedded nulls). Please reconfigure the connection.", nameof(instance.DatabasePasswordHash));
                 }
-                else
+                
+                if (string.IsNullOrWhiteSpace(decryptedPassword))
                 {
-                    // MySQL u otros motores que usan INFORMATION_SCHEMA
-                    using var connection = await _connectionManager.GetConnectionAsync(instance);
+                    _logger.LogError("Empty password for instance {InstanceId} after decryption", instanceId);
+                    throw new ArgumentException("Database password is empty after decryption.", nameof(instance.DatabasePasswordHash));
+                }
+                
+                // Ahora procede con MySQL o PostgreSQL sabiendo que la contraseña es válida
+                var result = instance.DatabaseType == "PostgreSQL"
+                    ? await GetPostgreSQLTablesAsync(instance)
+                    : await GetMySQLTablesAsync(instance);
                     
-                    try
-                    {
-                        var query = @"
-                            SELECT 
-                                TABLE_NAME as TableName,
-                                TABLE_TYPE as TableType,
-                                COALESCE(TABLE_ROWS, 0) as RowCount
-                            FROM INFORMATION_SCHEMA.TABLES 
-                            WHERE TABLE_SCHEMA = @databaseName
-                            ORDER BY TABLE_NAME";
-
-                        var parameters = new { databaseName = instance.DatabaseName };
-                        result = await ExecuteParameterizedQueryAsync(connection, query, parameters);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error ejecutando consulta parametrizada, intentando consulta directa");
-                        
-                        // Si falla, intentar con consulta directa (sin parámetros)
-                        var directQuery = $@"
-                            SELECT 
-                                TABLE_NAME as TableName,
-                                TABLE_TYPE as TableType,
-                                COALESCE(TABLE_ROWS, 0) as RowCount
-                            FROM INFORMATION_SCHEMA.TABLES 
-                            WHERE TABLE_SCHEMA = '{instance.DatabaseName}'
-                            ORDER BY TABLE_NAME";
-                        
-                        result = await _queryExecutor.ExecuteSafeQueryAsync(connection, directQuery);
-                    }
-                }
-                
-                if (!result.Success)
-                {
-                    _logger.LogError("Error obteniendo tablas: {ErrorMessage}", result.ErrorMessage);
-                    throw new Exception($"Error al obtener las tablas: {result.ErrorMessage ?? "Error desconocido"}");
-                }
-                
-                if (result.Rows.Count == 0)
-                {
-                    _logger.LogInformation("No se encontraron tablas en la base de datos {DatabaseName}", instance.DatabaseName);
-                    return new List<TableInfo>();
-                }
-                
-                return MapToTableInfoList(result);
+                return result.Success ? 
+                    result.Rows.Cast<object[]>().Select(r => new TableInfo { Name = r[0]?.ToString() }).ToList() :
+                    throw new Exception($"Error fetching tables: {result.ErrorMessage}");
             }
             catch (UnauthorizedAccessException)
             {
@@ -155,6 +115,42 @@ namespace ZenCloud.Services.Implementations
             }
         }
         
+        private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
+        {
+            var result = new QueryResult();
+            try
+            {
+                // ✅ Ya está saneada en GetTablesAsync, pero por seguridad valida aquí también
+                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+                decryptedPassword = decryptedPassword.Replace("\0", string.Empty).TrimEnd();
+                
+                var connectionString = $"Server={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Uid={instance.DatabaseUser};Pwd={decryptedPassword};";
+                
+                using var connection = new MySqlConnection(connectionString);
+                await connection.OpenAsync();
+                
+                // Consulta para MySQL usando INFORMATION_SCHEMA
+                var query = @"
+                    SELECT 
+                        TABLE_NAME as TableName,
+                        TABLE_TYPE as TableType,
+                        COALESCE(TABLE_ROWS, 0) as RowCount
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = @databaseName
+                    ORDER BY TABLE_NAME";
+
+                var parameters = new { databaseName = instance.DatabaseName };
+                result = await ExecuteParameterizedQueryAsync(connection, query, parameters);
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                _logger.LogError(ex, "Error obteniendo tablas de MySQL para instanceId: {InstanceId}", instance.InstanceId);
+            }
+            return result;
+        }
+
         private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instance)
         {
             var result = new QueryResult();
