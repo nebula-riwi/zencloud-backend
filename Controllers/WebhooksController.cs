@@ -47,21 +47,8 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(401, "No autenticado")]
     public async Task<IActionResult> GetWebhooks()
     {
-        var userId = GetCurrentUserId();
-        var webhooks = await _webhookService.GetUserWebhooksAsync(userId);
-        
-        var response = webhooks.Select(w => new WebhookResponse
-        {
-            WebhookId = w.WebhookId,
-            Name = w.Name,
-            WebhookUrl = w.WebhookUrl,
-            EventType = w.EventType.ToString(),
-            IsActive = w.IsActive,
-            CreatedAt = w.CreatedAt,
-            UpdatedAt = w.UpdatedAt
-        });
-
-        return Ok(new { data = response });
+        // Webhooks deshabilitados temporalmente
+        return Ok(new { data = new List<WebhookResponse>() });
     }
 
     /// <summary>
@@ -77,57 +64,8 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(422, "Errores de validación")]
     public async Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request)
     {
-        try
-        {
-            if (request == null)
-            {
-                throw new BadRequestException("La solicitud no puede estar vacía");
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Name))
-            {
-                throw new BadRequestException("El nombre del webhook es obligatorio");
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Url))
-            {
-                throw new BadRequestException("La URL del webhook es obligatoria");
-            }
-
-            if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                throw new BadRequestException("La URL del webhook no es válida");
-            }
-
-            var userId = GetCurrentUserId();
-            var webhook = await _webhookService.CreateWebhookAsync(userId, request.Name, request.Url, request.EventType);
-            
-            var response = new WebhookResponse
-            {
-                WebhookId = webhook.WebhookId,
-                Name = webhook.Name,
-                WebhookUrl = webhook.WebhookUrl,
-                EventType = webhook.EventType.ToString(),
-                IsActive = webhook.IsActive,
-                CreatedAt = webhook.CreatedAt,
-                UpdatedAt = webhook.UpdatedAt
-            };
-
-            return Ok(new { message = "Webhook creado exitosamente", data = response });
-        }
-        catch (BadRequestException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (UnauthorizedException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creando webhook");
-            return StatusCode(500, new { message = "Error al crear el webhook: " + ex.Message });
-        }
+        // Webhooks deshabilitados temporalmente
+        return Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null });
     }
 
     /// <summary>
@@ -144,21 +82,8 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(404, "Webhook no encontrado")]
     public async Task<IActionResult> UpdateWebhook(Guid id, [FromBody] UpdateWebhookRequest request)
     {
-        var userId = GetCurrentUserId();
-        var webhook = await _webhookService.UpdateWebhookAsync(id, userId, request.Url, request.EventType, request.Active, request.Name);
-        
-        var response = new WebhookResponse
-        {
-            WebhookId = webhook.WebhookId,
-            Name = webhook.Name,
-            WebhookUrl = webhook.WebhookUrl,
-            EventType = webhook.EventType.ToString(),
-            IsActive = webhook.IsActive,
-            CreatedAt = webhook.CreatedAt,
-            UpdatedAt = webhook.UpdatedAt
-        };
-
-        return Ok(new { message = "Webhook actualizado exitosamente", data = response });
+        // Webhooks deshabilitados temporalmente
+        return Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null });
     }
 
     /// <summary>
@@ -173,15 +98,8 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(404, "Webhook no encontrado")]
     public async Task<IActionResult> DeleteWebhook(Guid id)
     {
-        var userId = GetCurrentUserId();
-        var deleted = await _webhookService.DeleteWebhookAsync(id, userId);
-        
-        if (!deleted)
-        {
-            throw new NotFoundException("Webhook no encontrado");
-        }
-
-        return Ok(new { message = "Webhook eliminado exitosamente" });
+        // Webhooks deshabilitados temporalmente
+        return Ok(new { message = "Webhooks temporalmente deshabilitados" });
     }
 
     /// <summary>
@@ -196,23 +114,7 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(404, "Webhook no encontrado")]
     public async Task<IActionResult> TestWebhook(Guid id)
     {
-        var userId = GetCurrentUserId();
-        var webhook = await _webhookService.GetWebhookByIdAsync(id);
-        
-        if (webhook == null || webhook.UserId != userId)
-        {
-            throw new NotFoundException("Webhook no encontrado");
-        }
-
-        var testPayload = new
-        {
-            @event = "test",
-            timestamp = DateTime.UtcNow,
-            message = "Esta es una prueba del webhook"
-        };
-
-        await _webhookService.TriggerWebhookAsync(webhook.EventType, testPayload, userId);
-
-        return Ok(new { message = "Prueba de webhook enviada exitosamente" });
+        // Webhooks deshabilitados temporalmente
+        return Ok(new { message = "Webhooks temporalmente deshabilitados" });
     }
 }

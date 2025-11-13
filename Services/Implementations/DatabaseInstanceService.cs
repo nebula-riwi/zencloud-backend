@@ -67,8 +67,8 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         if (string.IsNullOrWhiteSpace(databaseName))
         {
             databaseName = _credentialsGenerator.GenerateDatabaseName(
-                engine.EngineName.ToString(),
-                user.UserId);
+            engine.EngineName.ToString(),
+            user.UserId);
         }
         else
         {

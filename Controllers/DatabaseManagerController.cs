@@ -34,9 +34,9 @@ namespace ZenCloud.Controllers
         {
             try
             {
-                var userId = GetCurrentUserId();
-                var tables = await _dbService.GetTablesAsync(instanceId, userId);
-                return Ok(tables);
+            var userId = GetCurrentUserId();
+            var tables = await _dbService.GetTablesAsync(instanceId, userId);
+            return Ok(tables);
             }
             catch (UnauthorizedAccessException ex)
             {

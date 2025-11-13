@@ -14,11 +14,13 @@ public class PaymentsController : ControllerBase
 {
     private readonly MercadoPagoService _mpService;
     private readonly IPlanRepository _planRepository;
+    private readonly ISubscriptionRepository _subscriptionRepository;
 
-    public PaymentsController(MercadoPagoService mpService, IPlanRepository planRepository)
+    public PaymentsController(MercadoPagoService mpService, IPlanRepository planRepository, ISubscriptionRepository subscriptionRepository)
     {
         _mpService = mpService;
         _planRepository = planRepository;
+        _subscriptionRepository = subscriptionRepository;
     }
 
     // Endpoint para crear pagos de suscripción
@@ -28,7 +30,7 @@ public class PaymentsController : ControllerBase
     {
         try
         {
-            if (request == null || request.PlanId <= 0)
+        if (request == null || request.PlanId <= 0)
                 return BadRequest(new { message = "PlanId inválido." });
 
             // Obtener userId del token si no viene en el request
@@ -95,6 +97,66 @@ public class PaymentsController : ControllerBase
         }
         catch (Exception ex)
         {
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    // Obtener suscripción actual del usuario
+    [HttpGet("current-subscription")]
+    [Authorize]
+    public async Task<IActionResult> GetCurrentSubscription()
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            var subscription = await _subscriptionRepository.GetActiveByUserIdAsync(userId);
+            
+            if (subscription == null)
+            {
+                // Si no hay suscripción activa, devolver el plan gratuito
+                var freePlan = await _planRepository.GetAllAsync();
+                var defaultPlan = freePlan.FirstOrDefault(p => p.PlanName.ToString().ToLower() == "free");
+                
+                if (defaultPlan != null)
+                {
+                    return Ok(new
+                    {
+                        planId = defaultPlan.PlanId,
+                        planName = defaultPlan.PlanName.ToString(),
+                        maxDatabasesPerEngine = defaultPlan.MaxDatabasesPerEngine,
+                        priceInCOP = defaultPlan.PriceInCOP,
+                        durationInDays = defaultPlan.DurationInDays,
+                        description = defaultPlan.Description,
+                        isActive = true
+                    });
+                }
+                
+                return Ok(new { message = "No hay suscripción activa" });
+            }
+
+            return Ok(new
+            {
+                planId = subscription.Plan.PlanId,
+                planName = subscription.Plan.PlanName.ToString(),
+                maxDatabasesPerEngine = subscription.Plan.MaxDatabasesPerEngine,
+                priceInCOP = subscription.Plan.PriceInCOP,
+                durationInDays = subscription.Plan.DurationInDays,
+                description = subscription.Plan.Description,
+                isActive = subscription.IsActive,
+                startDate = subscription.StartDate,
+                endDate = subscription.EndDate,
+                paymentStatus = subscription.PaymentStatus.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error obteniendo suscripción actual: {ex.Message}");
             return StatusCode(500, new { error = ex.Message });
         }
     }
