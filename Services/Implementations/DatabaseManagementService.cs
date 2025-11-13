@@ -22,8 +22,7 @@ namespace ZenCloud.Services.Implementations
 
         private readonly Regex _validIdentifierRegex = new Regex("^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", RegexOptions.Compiled);
 
-        // Removed 'create\s+table' from the regex to allow CREATE TABLE queries
-        private readonly Regex _sqlInjectionPattern = new Regex(@"(;|\-\-|#|/\*|\*/|union\s+select|insert\s+into|drop\s+table|delete\s+from|update\s+set|alter\s+table|grant\s+.*to|revoke\s+.*from|exec(\s+|ute)|xp_|sp_|load_file|outfile|dumpfile)",
+        private readonly Regex _sqlInjectionPattern = new Regex(@"(;(?!\s*$)|\-\-|#|/\*|\*/|union\s+select|drop\s+table|delete\s+from|grant\s+.*to|revoke\s+.*from|exec(\s+|ute)|xp_|sp_|load_file|outfile|dumpfile)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public DatabaseManagementService(
@@ -476,19 +475,25 @@ namespace ZenCloud.Services.Implementations
             if (string.IsNullOrWhiteSpace(query))
                 throw new ArgumentException("La consulta no puede estar vacía");
 
-            if (query.Length > 5000)
+            if (query.Length > 10000) // Aumentado para CREATE TABLE complejos
                 throw new ArgumentException("La consulta es demasiado larga");
 
-            if (_sqlInjectionPattern.IsMatch(query))
+            // Remover el punto y coma final antes de validar
+            var queryToValidate = query.TrimEnd();
+            if (queryToValidate.EndsWith(";"))
+                queryToValidate = queryToValidate[..^1].Trim();
+
+            if (_sqlInjectionPattern.IsMatch(queryToValidate))
                 throw new InvalidOperationException("La consulta contiene patrones potencialmente peligrosos");
 
-            var allowedFirstWords = new[] { "SELECT", "CREATE", "SHOW", "DESCRIBE", "EXPLAIN" };
-            var firstWord = query.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToUpper();
+            var allowedFirstWords = new[] { "SELECT", "CREATE", "SHOW", "DESCRIBE", "EXPLAIN", "ALTER", "DROP", "INSERT", "UPDATE" };
+            var firstWord = queryToValidate.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToUpper();
 
             if (firstWord == null || !allowedFirstWords.Contains(firstWord))
                 throw new InvalidOperationException($"Tipo de consulta no permitido: {firstWord}");
 
-            if (query.Contains(';') && query.TrimEnd().EndsWith(";"))
+            // Verificar múltiples statements (no un solo ; al final)
+            if (queryToValidate.Contains(';'))
                 throw new InvalidOperationException("Múltiples consultas no están permitidas");
         }
 
