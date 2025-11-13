@@ -22,6 +22,7 @@ namespace ZenCloud.Services.Implementations
 
         private readonly Regex _validIdentifierRegex = new Regex("^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", RegexOptions.Compiled);
 
+        // Removed 'create\s+table' from the regex to allow CREATE TABLE queries
         private readonly Regex _sqlInjectionPattern = new Regex(@"(;|\-\-|#|/\*|\*/|union\s+select|insert\s+into|drop\s+table|delete\s+from|update\s+set|alter\s+table|grant\s+.*to|revoke\s+.*from|exec(\s+|ute)|xp_|sp_|load_file|outfile|dumpfile)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -51,7 +52,6 @@ namespace ZenCloud.Services.Implementations
                 query = query[..^1].Trim();
             }
 
-            // ✅ VALIDACIÓN SEGURA
             ValidateCustomQuerySecurity(query);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
@@ -68,8 +68,6 @@ namespace ZenCloud.Services.Implementations
 
             return result;
         }
-
-        // ... existing code ...
 
         public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
         {
@@ -127,7 +125,6 @@ namespace ZenCloud.Services.Implementations
                 var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
                 decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
 
-                // Use MySqlConnectionStringBuilder to avoid malformed connection strings
                 var builder = new MySqlConnector.MySqlConnectionStringBuilder
                 {
                     Server = instance.ServerIpAddress,
@@ -135,7 +132,6 @@ namespace ZenCloud.Services.Implementations
                     Database = instance.DatabaseName,
                     UserID = instance.DatabaseUser,
                     Password = decryptedPassword,
-                    // Ajusta otras opciones si necesitas (SslMode, ConnectionTimeout, etc.)
                 };
 
                 _logger.LogInformation("MySQL connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
@@ -188,7 +184,6 @@ namespace ZenCloud.Services.Implementations
                 var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
                 decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
 
-                // Use NpgsqlConnectionStringBuilder to build a safe connection string
                 var pgBuilder = new Npgsql.NpgsqlConnectionStringBuilder
                 {
                     Host = instance.ServerIpAddress,
@@ -383,7 +378,6 @@ namespace ZenCloud.Services.Implementations
             await ValidateUserAccessAsync(instanceId, userId);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-
             using var connection = await _connectionManager.GetConnectionAsync(instance);
 
             var query = "SHOW PROCESSLIST";
@@ -423,7 +417,6 @@ namespace ZenCloud.Services.Implementations
                 throw new ArgumentException("ID de proceso inválido");
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-
             using var connection = await _connectionManager.GetConnectionAsync(instance);
 
             var query = "KILL @processId";
