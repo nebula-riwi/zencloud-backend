@@ -78,15 +78,22 @@ namespace ZenCloud.Services.Implementations
     
             // ✅ Desencriptar y sanear contraseña
             var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
-    
-            if (decryptedPassword.IndexOf('\0') >= 0)
-            {
-                _logger.LogError("Password contains embedded nulls for instance {InstanceId}", instanceId);
-                throw new ArgumentException("The database password contains invalid characters (embedded nulls). Please reconfigure the connection.");
-            }
-    
+
+            // Sanear embedded nulls y caracteres no imprimibles
+            bool hadNulls = decryptedPassword.IndexOf('\0') >= 0;
+            decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
+
+            // opcional: eliminar otros control chars
+            decryptedPassword = new string(decryptedPassword.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray()).Trim();
+
+            _logger.LogInformation("Preparing DB connection for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen} hadNulls={HadNulls}",
+                instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length, hadNulls);
+
             if (string.IsNullOrWhiteSpace(decryptedPassword))
-                throw new ArgumentException("Database password is empty after decryption.");
+            {
+                _logger.LogError("Database password is empty after decryption/cleanup for instance {InstanceId}", instance.InstanceId);
+                throw new ArgumentException("Database password is invalid after decryption/cleanup.");
+            }
     
             // ✅ Determina tipo de BD desde Engine.EngineName (enum DatabaseEngineType)
             QueryResult result = instance.Engine?.EngineName == DatabaseEngineType.PostgreSQL

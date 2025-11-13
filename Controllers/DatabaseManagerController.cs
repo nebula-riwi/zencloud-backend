@@ -29,39 +29,41 @@ namespace ZenCloud.Controllers
         [HttpGet("tables")]
         public async Task<IActionResult> GetTables(Guid instanceId)
         {
+            Guid userId;
             try
             {
-                var userId = GetCurrentUserId();
-                var tables = await _dbService.GetTablesAsync(instanceId, userId);
-                
-                // ✅ Usa DatabaseCreated como acción genérica de lectura de BD
-                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseCreated, "User retrieved database tables");
-                
-                return Ok(tables);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                var userId = GetCurrentUserId();
-                _logger.LogWarning(ex, "Unauthorized access to instance {InstanceId}", instanceId);
-                await _auditService.LogSecurityEventAsync(userId, AuditAction.UserLogin, $"Unauthorized access attempt to instance {instanceId}");
-                return Unauthorized(new { error = ex.Message });
-            }
-            catch (KeyNotFoundException ex)
-            {
-                _logger.LogWarning(ex, "Instance not found: {InstanceId}", instanceId);
-                return NotFound(new { error = ex.Message });
-            }
-            catch (ArgumentException ex)
-            {
-                var userId = GetCurrentUserId();
-                _logger.LogError(ex, "Invalid password for instance {InstanceId}", instanceId);
-                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseStatusChanged, "Invalid database password - connection failed");
-                return BadRequest(new { error = "Invalid database password. Please reconfigure the connection." });
+                userId = GetCurrentUserId();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving tables for instance {InstanceId}", instanceId);
-                return StatusCode(500, new { error = "An unexpected error occurred" });
+                _logger.LogWarning(ex, "Failed to resolve current user id");
+                return Unauthorized(new { error = "Invalid auth token" });
+            }
+
+            try
+            {
+                var tables = await _dbService.GetTablesAsync(instanceId, userId);
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseCreated, "User retrieved database tables");
+                return Ok(tables);
+            }
+            catch (ArgumentException ex)
+            {
+                // problema con credenciales / validación → 400
+                _logger.LogWarning(ex, "Bad request when fetching tables for instance {InstanceId} (user {UserId})", instanceId, userId);
+                // no revelar secretos en la respuesta
+                return BadRequest(new { error = "Invalid database credentials or configuration. Check instance settings." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Unauthorized access to instance {InstanceId} by {UserId}", instanceId, userId);
+                await _auditService.LogSecurityEventAsync(userId, AuditAction.UserLogin, $"Unauthorized access attempt to instance {instanceId}");
+                return Unauthorized(new { error = "You don't have access to this database instance" });
+            }
+            catch (Exception ex)
+            {
+                // Registrar stack completo para diagnóstico y devolver mensaje genérico
+                _logger.LogError(ex, "Unexpected error retrieving tables for instance {InstanceId} (user {UserId})", instanceId, userId);
+                return StatusCode(500, new { error = "Server error while fetching tables. See server logs for details." });
             }
         }
 
