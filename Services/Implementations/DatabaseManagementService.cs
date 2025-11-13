@@ -63,58 +63,57 @@ namespace ZenCloud.Services.Implementations
             return result;
         }
 
-        public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
+        // ... existing code ...
+
+public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
+{
+    var instance = await _context.DatabaseInstances
+        .Include(i => i.Engine)
+        .FirstOrDefaultAsync(x => x.InstanceId == instanceId);
+
+    if (instance == null)
+        throw new KeyNotFoundException($"Database instance {instanceId} not found");
+
+    if (instance.UserId != userId)
+        throw new UnauthorizedAccessException("You don't have access to this database instance");
+
+    var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+    bool hadNulls = decryptedPassword.IndexOf('\0') >= 0;
+    decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
+    decryptedPassword = new string(decryptedPassword.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray()).Trim();
+
+    // LOG en consola navegador (stdout), SOLO PARA DEBUG:
+    Console.WriteLine($"[DEBUG-CONN] InstanceId={instance.InstanceId} User={instance.DatabaseUser} Host={instance.ServerIpAddress} Port={instance.AssignedPort} Db={instance.DatabaseName} Pwd={decryptedPassword} PwdLen={decryptedPassword.Length} HadNulls={hadNulls}");
+
+    _logger.LogInformation("Preparing DB connection for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen} hadNulls={HadNulls}",
+        instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length, hadNulls);
+
+    if (string.IsNullOrWhiteSpace(decryptedPassword))
+    {
+        _logger.LogError("Database password is empty after decryption/cleanup for instance {InstanceId}", instance.InstanceId);
+        throw new ArgumentException("Database password is invalid after decryption/cleanup.");
+    }
+
+    QueryResult result = instance.Engine?.EngineName == DatabaseEngineType.PostgreSQL
+        ? await GetPostgreSQLTablesAsync(instance)
+        : await GetMySQLTablesAsync(instance);
+
+    if (!result.Success)
+        throw new Exception($"Error fetching tables: {result.ErrorMessage}");
+
+    return result.Rows
+        .Cast<object[]>()
+        .Select(r => new TableInfo
         {
-            var instance = await _context.DatabaseInstances
-                .Include(i => i.Engine)
-                .FirstOrDefaultAsync(x => x.InstanceId == instanceId);
-    
-            if (instance == null) 
-                throw new KeyNotFoundException($"Database instance {instanceId} not found");
-    
-            // ✅ Validar que el usuario es propietario de la instancia
-            if (instance.UserId != userId)
-                throw new UnauthorizedAccessException("You don't have access to this database instance");
-    
-            // ✅ Desencriptar y sanear contraseña
-            var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
-
-            // Sanear embedded nulls y caracteres no imprimibles
-            bool hadNulls = decryptedPassword.IndexOf('\0') >= 0;
-            decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
-
-            // opcional: eliminar otros control chars
-            decryptedPassword = new string(decryptedPassword.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray()).Trim();
-
-            _logger.LogInformation("Preparing DB connection for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen} hadNulls={HadNulls}",
-                instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length, hadNulls);
-
-            if (string.IsNullOrWhiteSpace(decryptedPassword))
-            {
-                _logger.LogError("Database password is empty after decryption/cleanup for instance {InstanceId}", instance.InstanceId);
-                throw new ArgumentException("Database password is invalid after decryption/cleanup.");
-            }
-    
-            // ✅ Determina tipo de BD desde Engine.EngineName (enum DatabaseEngineType)
-            QueryResult result = instance.Engine?.EngineName == DatabaseEngineType.PostgreSQL
-                ? await GetPostgreSQLTablesAsync(instance)
-                : await GetMySQLTablesAsync(instance);
-    
-            if (!result.Success)
-                throw new Exception($"Error fetching tables: {result.ErrorMessage}");
-    
-            // ✅ Mapea a TableInfo con campos: TableName, TableType, RowCount, CreateTime
-            return result.Rows
-                .Cast<object[]>()
-                .Select(r => new TableInfo 
-                { 
-                    TableName = r[0]?.ToString() ?? "Unknown",
-                    TableType = r.Length > 1 ? r[1]?.ToString() ?? "TABLE" : "TABLE",
-                    RowCount = r.Length > 2 ? Convert.ToInt64(r[2] ?? 0) : 0,
-                    CreateTime = r.Length > 3 && r[3] is DateTime dt ? dt : DateTime.UtcNow
-                })
-                .ToList();
+            TableName = r[0]?.ToString() ?? "Unknown",
+            TableType = r.Length > 1 ? r[1]?.ToString() ?? "TABLE" : "TABLE",
+            RowCount = r.Length > 2 ? Convert.ToInt64(r[2] ?? 0) : 0,
+            CreateTime = r.Length > 3 && r[3] is DateTime dt ? dt : DateTime.UtcNow
+        })
+        .ToList();
 }
+
+// ... rest of code ...
 
 private async Task<QueryResult> GetMySQLTablesAsync(DatabaseInstance instance)
 {
