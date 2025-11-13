@@ -63,7 +63,7 @@ namespace ZenCloud.Services.Implementations
             return result;
         }
 
-        public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
+       public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
 {
     try
     {
@@ -89,6 +89,9 @@ namespace ZenCloud.Services.Implementations
         {
             // MySQL - RECONSTRUIR ConnectionString manualmente
             var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash);
+            
+            // ✅ LIMPIAR CARACTERES NULOS de la contraseña
+            decryptedPassword = decryptedPassword?.TrimEnd('\0') ?? string.Empty;
             
             var builder = new MySqlConnectionStringBuilder
             {
@@ -149,100 +152,65 @@ namespace ZenCloud.Services.Implementations
         throw;
     }
 }
-        private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instance)
+
+private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instance)
+{
+    var result = new QueryResult();
+    
+    try
+    {
+        var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash);
+        
+        // ✅ LIMPIAR CARACTERES NULOS
+        decryptedPassword = decryptedPassword?.TrimEnd('\0') ?? string.Empty;
+        
+        var connectionString = $"Host={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Username={instance.DatabaseUser};Password={decryptedPassword};Timeout=30;";
+        
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        // Consulta para PostgreSQL usando pg_catalog
+        var query = @"
+            SELECT 
+                tablename as TableName,
+                'BASE TABLE' as TableType,
+                COALESCE(n_live_tup, 0) as RowCount
+            FROM pg_catalog.pg_tables t
+            LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
+            WHERE schemaname = 'public'
+            ORDER BY tablename";
+        
+        await using var command = new NpgsqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        
+        // Obtener metadatos de columnas
+        for (int i = 0; i < reader.FieldCount; i++)
         {
-            var result = new QueryResult();
-            
-            try
-            {
-                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash);
-                var connectionString = $"Host={instance.ServerIpAddress};Port={instance.AssignedPort};Database={instance.DatabaseName};Username={instance.DatabaseUser};Password={decryptedPassword};Timeout=30;";
-                
-                await using var connection = new NpgsqlConnection(connectionString);
-                await connection.OpenAsync();
-                
-                // Consulta para PostgreSQL usando pg_catalog
-                var query = @"
-                    SELECT 
-                        tablename as TableName,
-                        'BASE TABLE' as TableType,
-                        COALESCE(n_live_tup, 0) as RowCount
-                    FROM pg_catalog.pg_tables t
-                    LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
-                    WHERE schemaname = 'public'
-                    ORDER BY tablename";
-                
-                await using var command = new NpgsqlCommand(query, connection);
-                await using var reader = await command.ExecuteReaderAsync();
-                
-                // Obtener metadatos de columnas
-                for (int i = 0; i < reader.FieldCount; i++)
-                {
-                    result.Columns.Add(reader.GetName(i));
-                }
-                
-                // Obtener datos
-                while (await reader.ReadAsync())
-                {
-                    var row = new object[reader.FieldCount];
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                    }
-                    result.Rows.Add(row);
-                }
-                
-                result.Success = true;
-            }
-            catch (Exception ex)
-            {
-                result.Success = false;
-                result.ErrorMessage = ex.Message;
-                _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
-            }
-            
-            return result;
+            result.Columns.Add(reader.GetName(i));
         }
-
-        public async Task<TableSchema> GetTableSchemaAsync(Guid instanceId, Guid userId, string tableName)
+        
+        // Obtener datos
+        while (await reader.ReadAsync())
         {
-            await ValidateUserAccessAsync(instanceId, userId);
-            
-            // ✅ Validar nombre de tabla
-            if (!IsValidTableName(tableName))
-                throw new ArgumentException("Nombre de tabla contiene caracteres inválidos");
-            
-            var instance = await GetDatabaseInstanceAsync(instanceId);
-            
-            // ✅ Validar nombre de base de datos
-            if (!IsValidDatabaseIdentifier(instance.DatabaseName))
-                throw new ArgumentException("Nombre de base de datos contiene caracteres inválidos");
-            
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
-
-            // ✅ CONSULTA PARAMETRIZADA
-            var columnsQuery = @"
-                SELECT 
-                    COLUMN_NAME as ColumnName,
-                    DATA_TYPE as DataType,
-                    IS_NULLABLE as IsNullable,
-                    COLUMN_DEFAULT as DefaultValue,
-                    CHARACTER_MAXIMUM_LENGTH as MaxLength,
-                    COLUMN_KEY as ColumnKey
-                FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_SCHEMA = @databaseName 
-                AND TABLE_NAME = @tableName
-                ORDER BY ORDINAL_POSITION";
-
-            var parameters = new { databaseName = instance.DatabaseName, tableName };
-            var columnsResult = await ExecuteParameterizedQueryAsync(connection, columnsQuery, parameters);
-
-            return new TableSchema
+            var row = new object[reader.FieldCount];
+            for (int i = 0; i < reader.FieldCount; i++)
             {
-                TableName = tableName,
-                Columns = MapToColumnInfoList(columnsResult)
-            };
+                row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            }
+            result.Rows.Add(row);
         }
+        
+        result.Success = true;
+    }
+    catch (Exception ex)
+    {
+        result.Success = false;
+        result.ErrorMessage = ex.Message;
+        _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
+    }
+    
+    return result;
+}
 
         public async Task<QueryResult> GetTableDataAsync(Guid instanceId, Guid userId, string tableName, int limit = 100)
         {
