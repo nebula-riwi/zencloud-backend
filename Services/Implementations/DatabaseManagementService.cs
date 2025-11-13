@@ -513,7 +513,7 @@ private async Task<QueryResult> GetPostgreSQLTablesAsync(DatabaseInstance instan
                 throw new InvalidOperationException("La consulta contiene patrones potencialmente peligrosos");
             
             // ✅ Solo permitir consultas SIMPLES de lectura
-            var allowedFirstWords = new[] { "SELECT", "SHOW", "DESCRIBE", "EXPLAIN" };
+            var allowedFirstWords = new[] { "SELECT", "CREATE", "SHOW", "DESCRIBE", "EXPLAIN" };
             var firstWord = query.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .FirstOrDefault()?
                 .ToUpper();
