@@ -87,8 +87,21 @@ namespace ZenCloud.Services.Implementations
         }
         else
         {
-            // MySQL - usar conexión directa sin el método parametrizado problemático
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            // MySQL - RECONSTRUIR ConnectionString manualmente
+            var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash);
+            
+            var builder = new MySqlConnectionStringBuilder
+            {
+                Server = instance.ServerIpAddress,
+                Port = (uint)instance.AssignedPort,
+                Database = instance.DatabaseName,
+                UserID = instance.DatabaseUser,
+                Password = decryptedPassword,
+                ConnectionTimeout = 30
+            };
+            
+            using var connection = new MySqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
             
             // Usar consulta directa con escape manual
             var escapedDbName = instance.DatabaseName.Replace("'", "''");
