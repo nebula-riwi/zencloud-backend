@@ -23,7 +23,7 @@ namespace ZenCloud.Services.Implementations
        
         private readonly Regex _validIdentifierRegex = new Regex("^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", RegexOptions.Compiled);
         
-        private readonly Regex _sqlInjectionPattern = new Regex(@"(;|\-\-|#|/\*|\*/|union\s+select|insert\s+into|drop\s+table|delete\s+from|update\s+set|create\s+table|alter\s+table|grant\s+.*to|revoke\s+.*from|exec(\s+|ute)|xp_|sp_|load_file|outfile|dumpfile)", 
+        private readonly Regex _sqlInjectionPattern = new Regex(@"(;|\-\-|#|/\*|\*/|union\s+select|insert\s+into|drop\s+table|delete\s+from|update\s+set|alter\s+table|grant\s+.*to|revoke\s+.*from|exec(\s+|ute)|xp_|sp_|load_file|outfile|dumpfile)", 
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
         public DatabaseManagementService(
             IMySQLConnectionManager connectionManager,
