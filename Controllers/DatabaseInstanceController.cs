@@ -41,7 +41,8 @@ public class DatabaseInstanceController : ControllerBase
                 ConnectionString = db.ConnectionString,
                 Status = db.Status.ToString(),
                 EngineName = db.Engine?.EngineName.ToString() ?? "Unknown",
-                CreatedAt = db.CreatedAt
+                CreatedAt = db.CreatedAt,
+                ServerIpAddress = db.ServerIpAddress
             });
             
             return Ok(new  { data = response });
@@ -73,7 +74,8 @@ public class DatabaseInstanceController : ControllerBase
                 ConnectionString = database.ConnectionString,
                 Status = database.Status.ToString(),
                 EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
-                CreatedAt = database.CreatedAt
+                CreatedAt = database.CreatedAt,
+                ServerIpAddress = database.ServerIpAddress
             };
             
             return Ok(new { data = response });
@@ -117,7 +119,8 @@ public class DatabaseInstanceController : ControllerBase
             ConnectionString = database.ConnectionString,
             Status = database.Status.ToString(),
             EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
-            CreatedAt = database.CreatedAt
+            CreatedAt = database.CreatedAt,
+            ServerIpAddress = database.ServerIpAddress
         };
 
         return Ok(new
@@ -149,46 +152,5 @@ public class DatabaseInstanceController : ControllerBase
     {
         await _databaseInstanceService.DeleteDatabaseInstanceAsync(instanceId, userId);
         return Ok(new { message = "Base de datos eliminada exitosamente" });
-    }
-
-    [HttpGet("my-databases")]
-    [SwaggerOperation(Summary = "Obtener mis bases de datos", Description = "Retorna todas las bases de datos del usuario autenticado")]
-    [SwaggerResponse(200, "Lista de bases de datos")]
-    [SwaggerResponse(401, "No autenticado")]
-    public async Task<IActionResult> GetMyDatabases()
-    {
-        try
-        { 
-            // Buscar userId en múltiples claims (igual que otros controladores)
-            var userIdClaim = User.FindFirst("userId")?.Value ?? 
-                             User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ??
-                             User.FindFirst("sub")?.Value;
-            
-            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            {
-                return Unauthorized(new { message = "Usuario no autenticado" });
-            }
-
-            var databases = await _databaseInstanceService.GetUserDatabasesAsync(userId);
-
-            var response = databases.Select(db => new DatabaseInstanceResponseDto
-            {
-                InstanceId = db.InstanceId,
-                DatabaseName = db.DatabaseName,
-                DatabaseUser = db.DatabaseUser,
-                AssignedPort = db.AssignedPort,
-                ConnectionString = db.ConnectionString,
-                Status = db.Status.ToString(),
-                EngineName = db.Engine?.EngineName.ToString() ?? "Unknown",
-                CreatedAt = db.CreatedAt,
-                ServerIpAddress = db.ServerIpAddress
-            });
-        
-            return Ok(new { data = response });
-        }
-        catch (Exception)
-        {
-            return BadRequest(new { message = "Error al obtener las bases de datos" });
-        }
     }
 }
