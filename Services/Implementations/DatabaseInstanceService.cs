@@ -1,6 +1,7 @@
 using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.Services.Interfaces;
+using System.Security.Cryptography;
 using ZenCloud.Exceptions;
 
 namespace ZenCloud.Services.Implementations;
@@ -47,86 +48,96 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     }
 
     public async Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId, string? databaseName = null)
+{
+    var user = await _userRepository.GetByIdAsync(userId);
+    if (user == null)
+        throw new NotFoundException("Usuario no encontrado");
+
+    var engine = await _engineRepository.GetByIdAsync(engineId);
+    if (engine == null || !engine.IsActive)
+        throw new BadRequestException("Motor de base de datos no válido o inactivo");
+
+    var canCreate = await _planValidationService.CanCreateDatabaseAsync(userId, engineId);
+    if (!canCreate)
+        throw new ConflictException("Has alcanzado el límite de bases de datos para tu plan actual");
+
+    string finalDatabaseName;
+
+    if (string.IsNullOrWhiteSpace(databaseName))
     {
-        var user = await _userRepository.GetByIdAsync(userId);
-        if (user == null)
-        {
-            throw new NotFoundException("Usuario no encontrado");
-        }
-
-        var engine = await _engineRepository.GetByIdAsync(engineId);
-        if (engine == null || !engine.IsActive)
-        {
-            throw new BadRequestException("Motor de base de datos no válido o inactivo");
-        }
-        
-        var canCreate = await _planValidationService.CanCreateDatabaseAsync(userId, engineId);
-        if (!canCreate)
-        {
-            throw new ConflictException("Has alcanzado el límite de bases de datos para tu plan actual");
-        }
-        
-        // Si no se proporciona un nombre, generar uno automáticamente
-        if (string.IsNullOrWhiteSpace(databaseName))
-        {
-            databaseName = _credentialsGenerator.GenerateDatabaseName(
-            engine.EngineName.ToString(),
-            user.UserId);
-        }
-        else
-        {
-            // Validar y normalizar el nombre proporcionado
-            databaseName = databaseName.ToLower().Trim();
-            if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_\-\+]+$"))
-            {
-                throw new BadRequestException("El nombre de la base de datos solo puede contener letras minúsculas, números, guiones y guiones bajos");
-            }
-        }
-        
-        var username = _credentialsGenerator.GenerateUsername(databaseName);
-
-        var password = _credentialsGenerator.GeneratePassword();
-
-        var passwordEncrypted = _encryptionService.Encrypt(password);
-        await _databaseEngineService.CreatePhysicalDatabaseAsync(
-            engine.EngineName.ToString(),
-            databaseName,
-            username,
-            password
-        );
-
-        var databaseInstance = new DatabaseInstance
-        {
-            InstanceId = Guid.NewGuid(),
-            UserId = userId,
-            EngineId = engine.EngineId,
-            DatabaseName = databaseName,
-            DatabaseUser = username,
-            DatabasePasswordHash = passwordEncrypted,
-            AssignedPort = engine.DefaultPort,
-            ConnectionString = BuildConnectionString(engine, databaseName, username, password),
-            Status = DatabaseInstanceStatus.Active,
-            ServerIpAddress = "168.119.182.243",
-            CreatedAt = DateTime.UtcNow
-
-        };
-        
-        await _databaseRepository.CreateAsync(databaseInstance);
-        
-        // Enviar correo con credenciales
-        await _emailService.SendDatabaseCredentialsEmailAsync(
-            user.Email,
-            user.FullName,
-            engine.EngineName.ToString(),
-            databaseName,
-            username,
-            password,
-            databaseInstance.ServerIpAddress,
-            databaseInstance.AssignedPort
-        );
-        
-        return databaseInstance;
+        // Generar nombre automático completo
+        finalDatabaseName = _credentialsGenerator.GenerateDatabaseName(engine.EngineName.ToString(), user.UserId);
     }
+    else
+    {
+        // Validar y normalizar nombre ingresado por usuario
+        databaseName = databaseName.ToLower().Trim();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_\-\+]+$"))
+            throw new BadRequestException("El nombre de la base de datos solo puede contener letras minúsculas, números, guiones y guiones bajos");
+        
+        // Agregar sufijo automático para diferenciar / estandarizar
+        string suffix = GenerateRandomSuffix(6); // función que genera 6 caracteres aleatorios seguro
+        finalDatabaseName = $"{databaseName}_{suffix}";
+    }
+
+    var username = _credentialsGenerator.GenerateUsername(finalDatabaseName);
+    var password = _credentialsGenerator.GeneratePassword();
+    var passwordEncrypted = _encryptionService.Encrypt(password);
+
+    await _databaseEngineService.CreatePhysicalDatabaseAsync(
+        engine.EngineName.ToString(),
+        finalDatabaseName,
+        username,
+        password
+    );
+
+    var databaseInstance = new DatabaseInstance
+    {
+        InstanceId = Guid.NewGuid(),
+        UserId = userId,
+        EngineId = engine.EngineId,
+        DatabaseName = finalDatabaseName,
+        DatabaseUser = username,
+        DatabasePasswordHash = passwordEncrypted,
+        AssignedPort = engine.DefaultPort,
+        ConnectionString = BuildConnectionString(engine, finalDatabaseName, username, password),
+        Status = DatabaseInstanceStatus.Active,
+        ServerIpAddress = "168.119.182.243",
+        CreatedAt = DateTime.UtcNow
+    };
+
+    await _databaseRepository.CreateAsync(databaseInstance);
+
+    await _emailService.SendDatabaseCredentialsEmailAsync(
+        user.Email,
+        user.FullName,
+        engine.EngineName.ToString(),
+        finalDatabaseName,
+        username,
+        password,
+        databaseInstance.ServerIpAddress,
+        databaseInstance.AssignedPort
+    );
+
+    return databaseInstance;
+}
+
+// Método auxiliar para generar sufijo aleatorio
+private static string GenerateRandomSuffix(int length)
+{
+    const string chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var data = new byte[length];
+    using var rng = RandomNumberGenerator.Create();
+    rng.GetBytes(data);
+
+    var resultChars = new char[length];
+    for (int i = 0; i < length; i++)
+    {
+        resultChars[i] = chars[data[i] % chars.Length];
+    }
+
+    return new string(resultChars);
+}
 
     public string BuildConnectionString(DatabaseEngine engine, string databaseName, string userName, string password)
     {
