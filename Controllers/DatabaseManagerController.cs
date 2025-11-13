@@ -152,6 +152,26 @@ namespace ZenCloud.Controllers
                 return StatusCode(500, new { error = "An error occurred while testing the connection" });
             }
         }
+        
+           
+        [HttpGet("~/api/current-user-id")]
+        public IActionResult GetCurrentUserIdEndpoint()
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                return Ok(new { UserId = userId });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting current user id");
+                return StatusCode(500, new { error = "An error occurred getting current user id" });
+            }
+        }
 
         private Guid GetCurrentUserId()
         {
