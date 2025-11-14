@@ -11,4 +11,5 @@ public interface IDatabaseInstanceService
     Task<(DatabaseInstance database, string newPassword)> RotateCredentialsAsync(Guid instanceId, Guid userId);
     Task<DatabaseInstance> ActivateDatabaseAsync(Guid instanceId, Guid userId);
     Task<DatabaseInstance> DeactivateDatabaseAsync(Guid instanceId, Guid userId);
+    Task<IEnumerable<DatabaseEngine>> GetActiveEnginesAsync();
 }

@@ -3,6 +3,7 @@ using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.Services.Interfaces;
 using System.Security.Cryptography;
 using ZenCloud.Exceptions;
+using System.Linq;
 
 namespace ZenCloud.Services.Implementations;
 
@@ -40,6 +41,12 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
     {
         return await _databaseRepository.GetByUserIdAsync(userId);
+    }
+
+    public async Task<IEnumerable<DatabaseEngine>> GetActiveEnginesAsync()
+    {
+        var engines = await _engineRepository.GetAllAsync();
+        return engines.Where(e => e.IsActive).OrderBy(e => e.EngineName);
     }
 
     public async Task<DatabaseInstance?> GetDatabaseByIdAsync(Guid instanceId)

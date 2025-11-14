@@ -1,4 +1,5 @@
 using MailKit.Net.Smtp;
+using MailKit.Security;
 using System;
 using MimeKit;
 using System.Threading.Tasks;
@@ -54,7 +55,7 @@ public class EmailService : IEmailService
 
         using (var client = new SmtpClient())
         {
-            await client.ConnectAsync(_smtpServer, _smtpPort, false);
+            await client.ConnectAsync(_smtpServer, _smtpPort, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
@@ -116,7 +117,7 @@ public class EmailService : IEmailService
 
         using (var client = new SmtpClient())
         {
-            await client.ConnectAsync(_smtpServer, _smtpPort, false);
+            await client.ConnectAsync(_smtpServer, _smtpPort, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
@@ -142,7 +143,7 @@ public class EmailService : IEmailService
 
         using (var client = new SmtpClient())
         {
-            await client.ConnectAsync(_smtpServer, _smtpPort, false);
+            await client.ConnectAsync(_smtpServer, _smtpPort, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);

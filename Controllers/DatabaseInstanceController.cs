@@ -5,6 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using ZenCloud.Services.Interfaces;
 using ZenCloud.Exceptions;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Linq;
 
 namespace ZenCloud.Controllers;
 
@@ -51,6 +52,24 @@ public class DatabaseInstanceController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+    }
+
+    [HttpGet("engines")]
+    public async Task<IActionResult> GetDatabaseEngines()
+    {
+        var engines = await _databaseInstanceService.GetActiveEnginesAsync();
+
+        var response = engines.Select(engine => new
+        {
+            id = engine.EngineId,
+            name = engine.EngineName.ToString(),
+            slug = engine.EngineName.ToString().ToLowerInvariant(),
+            defaultPort = engine.DefaultPort,
+            description = engine.Description,
+            isActive = engine.IsActive
+        });
+
+        return Ok(new { data = response });
     }
 
     [HttpGet("{instanceId}")]
