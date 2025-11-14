@@ -172,9 +172,15 @@ private static string GenerateRandomSuffix(int length)
             throw new ForbiddenException("No tienes permisos para eliminar esta base de datos");
         }
 
-        if (instance.Status != DatabaseInstanceStatus.Active)
+        if (instance.Status == DatabaseInstanceStatus.Deleted)
         {
-            throw new BadRequestException("La base de datos se encuentra inactiva");
+            throw new BadRequestException("La base de datos ya está eliminada");
+        }
+
+        // Solo se puede eliminar físicamente si está desactivada
+        if (instance.Status == DatabaseInstanceStatus.Active)
+        {
+            throw new BadRequestException("Debes desactivar la base de datos antes de eliminarla");
         }
         
         var user = await _userRepository.GetByIdAsync(userId);
@@ -269,5 +275,80 @@ private static string GenerateRandomSuffix(int length)
         );
 
         return (instance, newPassword);
+    }
+
+    public async Task<DatabaseInstance> ActivateDatabaseAsync(Guid instanceId, Guid userId)
+    {
+        var instance = await _databaseRepository.GetByIdWithEngineAsync(instanceId);
+        
+        if (instance == null)
+        {
+            throw new NotFoundException("Base de datos no encontrada");
+        }
+
+        if (instance.UserId != userId)
+        {
+            throw new ForbiddenException("No tienes permisos para activar esta base de datos");
+        }
+
+        if (instance.Status == DatabaseInstanceStatus.Active)
+        {
+            throw new BadRequestException("La base de datos ya está activa");
+        }
+
+        if (instance.Status == DatabaseInstanceStatus.Deleted)
+        {
+            throw new BadRequestException("No se puede reactivar una base de datos eliminada");
+        }
+
+        // Validar límite de bases activas según el plan
+        var engine = instance.Engine;
+        if (engine == null)
+        {
+            throw new NotFoundException("Motor de base de datos no encontrado");
+        }
+
+        var canActivate = await _planValidationService.CanCreateDatabaseAsync(userId, engine.EngineId);
+        if (!canActivate)
+        {
+            throw new ConflictException("Has alcanzado el límite de bases de datos activas para tu plan actual. Desactiva otra base de datos primero.");
+        }
+
+        instance.Status = DatabaseInstanceStatus.Active;
+        instance.UpdatedAt = DateTime.UtcNow;
+        await _databaseRepository.UpdateAsync(instance);
+
+        return instance;
+    }
+
+    public async Task<DatabaseInstance> DeactivateDatabaseAsync(Guid instanceId, Guid userId)
+    {
+        var instance = await _databaseRepository.GetByIdWithEngineAsync(instanceId);
+        
+        if (instance == null)
+        {
+            throw new NotFoundException("Base de datos no encontrada");
+        }
+
+        if (instance.UserId != userId)
+        {
+            throw new ForbiddenException("No tienes permisos para desactivar esta base de datos");
+        }
+
+        if (instance.Status == DatabaseInstanceStatus.Inactive)
+        {
+            throw new BadRequestException("La base de datos ya está desactivada");
+        }
+
+        if (instance.Status == DatabaseInstanceStatus.Deleted)
+        {
+            throw new BadRequestException("La base de datos ya está eliminada");
+        }
+
+        instance.Status = DatabaseInstanceStatus.Inactive;
+        instance.UpdatedAt = DateTime.UtcNow;
+        await _databaseRepository.UpdateAsync(instance);
+
+        return instance;
     }
 }
