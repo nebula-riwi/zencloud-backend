@@ -1,4 +1,5 @@
 using MailKit.Net.Smtp;
+using System;
 using MimeKit;
 using System.Threading.Tasks;
 using ZenCloud.Data.Repositories.Interfaces;
@@ -38,9 +39,13 @@ public class EmailService : IEmailService
         message.To.Add(new MailboxAddress(email, email));
         message.Subject = "Verify Your Email";
 
+        var encodedEmail = Uri.EscapeDataString(email);
+        var encodedToken = Uri.EscapeDataString(verificationToken);
+        var verificationUrl = $"https://service.nebula.andrescortes.dev/api/Auth/verify?email={encodedEmail}&token={encodedToken}";
+
         string body = _verificationEmailTemplate
             .Replace("[Nombre del Usuario]", email)
-            .Replace("[Enlace de Verificación]", $"https://service.nebula.andrescortes.dev/Auth/verify?email={email}&token={verificationToken}");
+            .Replace("[Enlace de Verificación]", verificationUrl);
 
         message.Body = new TextPart("html")
         {

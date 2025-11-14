@@ -12,6 +12,11 @@ public class Subscription
     public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public bool AutoRenewEnabled { get; set; }
+    public DateTime? LastAutoRenewAttemptAt { get; set; }
+    public string? LastAutoRenewError { get; set; }
+    public DateTime? LastExpirationReminderSentAt { get; set; }
+    public int ExpirationReminderCount { get; set; }
 
     // Navigation properties
     public User User { get; set; } = null!;

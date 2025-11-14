@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.DTOs;
 using ZenCloud.Services;
@@ -16,17 +17,20 @@ public class PaymentsController : ControllerBase
     private readonly IPlanRepository _planRepository;
     private readonly ISubscriptionRepository _subscriptionRepository;
     private readonly IPaymentRepository _paymentRepository;
+    private readonly ILogger<PaymentsController> _logger;
 
     public PaymentsController(
         MercadoPagoService mpService, 
         IPlanRepository planRepository, 
         ISubscriptionRepository subscriptionRepository,
-        IPaymentRepository paymentRepository)
+        IPaymentRepository paymentRepository,
+        ILogger<PaymentsController> logger)
     {
         _mpService = mpService;
         _planRepository = planRepository;
         _subscriptionRepository = subscriptionRepository;
         _paymentRepository = paymentRepository;
+        _logger = logger;
     }
 
     // Endpoint para crear pagos de suscripción
@@ -40,25 +44,26 @@ public class PaymentsController : ControllerBase
                 return BadRequest(new { message = "PlanId inválido." });
 
             // Obtener userId del token si no viene en el request
-            Guid userId;
-            if (request.UserId == Guid.Empty)
-            {
-                var userIdClaim = User.FindFirst("userId")?.Value ?? 
-                                 User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-                if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out userId))
-                {
-                    return Unauthorized(new { message = "Usuario no autenticado" });
-                }
-            }
-            else
-            {
-                userId = request.UserId;
-            }
+            Guid userId = request.UserId != Guid.Empty ? request.UserId : GetUserIdFromClaims();
 
             // Verificar que el plan existe
             var plan = await _planRepository.GetByIdAsync(request.PlanId);
             if (plan == null)
                 return BadRequest(new { message = "Plan no encontrado." });
+
+            var currentSubscription = await _subscriptionRepository.GetActiveByUserIdAsync(userId);
+            if (currentSubscription != null && currentSubscription.Plan != null)
+            {
+                if (currentSubscription.Plan.PlanId == plan.PlanId)
+                {
+                    return BadRequest(new { message = "Ya cuentas con este plan activo." });
+                }
+
+                if (currentSubscription.Plan.PriceInCOP > plan.PriceInCOP)
+                {
+                    return BadRequest(new { message = "No puedes cambiar a un plan inferior mientras tu suscripción esté activa." });
+                }
+            }
 
             var paymentUrl = await _mpService.CreateSubscriptionPreferenceAsync(
                 userId,
@@ -114,12 +119,7 @@ public class PaymentsController : ControllerBase
     {
         try
         {
-            var userIdClaim = User.FindFirst("userId")?.Value ?? 
-                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            {
-                return Unauthorized(new { message = "Usuario no autenticado" });
-            }
+            var userId = GetUserIdFromClaims();
 
             var subscription = await _subscriptionRepository.GetActiveByUserIdAsync(userId);
             
@@ -139,7 +139,8 @@ public class PaymentsController : ControllerBase
                         priceInCOP = defaultPlan.PriceInCOP,
                         durationInDays = defaultPlan.DurationInDays,
                         description = defaultPlan.Description,
-                        isActive = true
+                        isActive = true,
+                        autoRenewEnabled = false
                     });
                 }
                 
@@ -157,7 +158,8 @@ public class PaymentsController : ControllerBase
                 isActive = subscription.IsActive,
                 startDate = subscription.StartDate,
                 endDate = subscription.EndDate,
-                paymentStatus = subscription.PaymentStatus.ToString()
+                paymentStatus = subscription.PaymentStatus.ToString(),
+                autoRenewEnabled = subscription.AutoRenewEnabled
             });
         }
         catch (Exception ex)
@@ -174,12 +176,7 @@ public class PaymentsController : ControllerBase
     {
         try
         {
-            var userIdClaim = User.FindFirst("userId")?.Value ?? 
-                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            {
-                return Unauthorized(new { message = "Usuario no autenticado" });
-            }
+            var userId = GetUserIdFromClaims();
 
             var payments = await _paymentRepository.GetByUserIdAsync(userId);
             
@@ -203,6 +200,41 @@ public class PaymentsController : ControllerBase
         {
             Console.WriteLine($"Error obteniendo historial de pagos: {ex.Message}");
             return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    [HttpPatch("auto-renew")]
+    [Authorize]
+    public async Task<IActionResult> UpdateAutoRenew([FromBody] UpdateAutoRenewRequest request)
+    {
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            var subscription = await _subscriptionRepository.GetActiveByUserIdAsync(userId);
+
+            if (subscription == null)
+            {
+                return NotFound(new { message = "No hay una suscripción activa" });
+            }
+
+            subscription.AutoRenewEnabled = request.Enabled;
+            subscription.UpdatedAt = DateTime.UtcNow;
+            await _subscriptionRepository.UpdateAsync(subscription);
+
+            var message = request.Enabled
+                ? "Renovación automática activada."
+                : "Renovación automática desactivada.";
+
+            return Ok(new { message, autoRenewEnabled = subscription.AutoRenewEnabled });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { message = "Usuario no autenticado" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating auto-renew setting");
+            return StatusCode(500, new { message = "No se pudo actualizar la renovación automática" });
         }
     }
 
@@ -230,5 +262,19 @@ public class PaymentsController : ControllerBase
             Console.WriteLine($"Error procesando webhook: {ex.Message}");
             return StatusCode(500, new { error = ex.Message });
         }
+
+    }
+
+    private Guid GetUserIdFromClaims()
+    {
+        var userIdClaim = User.FindFirst("userId")?.Value ??
+                          User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            throw new UnauthorizedAccessException("Usuario no autenticado");
+        }
+
+        return userId;
     }
 }

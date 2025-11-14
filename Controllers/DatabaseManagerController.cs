@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using ZenCloud.Data.Entities;
@@ -86,6 +87,16 @@ namespace ZenCloud.Controllers
                 await _auditService.LogSecurityEventAsync(userId, AuditAction.UserLogin, $"Unauthorized query execution on instance {instanceId}");
                 return Unauthorized(new { error = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Blocked SQL query for instance {InstanceId}", instanceId);
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid SQL query for instance {InstanceId}", instanceId);
+                return BadRequest(new { error = ex.Message });
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error executing query");
@@ -130,6 +141,50 @@ namespace ZenCloud.Controllers
             {
                 _logger.LogError(ex, "Error retrieving table data");
                 return StatusCode(500, new { error = "An error occurred while retrieving the table data" });
+            }
+        }
+
+        [HttpGet("history")]
+        public async Task<IActionResult> GetQueryHistory(Guid instanceId, [FromQuery] int limit = 20)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var history = await _dbService.GetQueryHistoryAsync(instanceId, userId, limit);
+                return Ok(new { data = history });
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { error = "No tienes acceso a esta base de datos" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving query history");
+                return StatusCode(500, new { error = "No se pudo obtener el historial de consultas" });
+            }
+        }
+
+        [HttpGet("export")]
+        public async Task<IActionResult> ExportDatabase(Guid instanceId)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var exportResult = await _dbService.ExportDatabaseAsync(instanceId, userId);
+                return File(exportResult.Content, exportResult.ContentType, exportResult.FileName);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Unauthorized(new { error = "No tienes acceso a esta base de datos" });
+            }
+            catch (NotSupportedException ex)
+            {
+                return StatusCode(StatusCodes.Status501NotImplemented, new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error exporting database {InstanceId}", instanceId);
+                return StatusCode(500, new { error = "No se pudo exportar la base de datos" });
             }
         }
 

@@ -19,6 +19,7 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
     public DbSet<WebhookLog> WebhookLogs { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ErrorLog> ErrorLogs { get; set; }
+    public DbSet<DatabaseQueryHistory> DatabaseQueryHistory { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -228,6 +229,15 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
             entity.Property(p => p.PaymentMethod)
                 .HasMaxLength(100);
 
+            entity.Property(p => p.PaymentMethodId)
+                .HasMaxLength(100);
+
+            entity.Property(p => p.PayerId)
+                .HasMaxLength(100);
+
+            entity.Property(p => p.CardId)
+                .HasMaxLength(100);
+
             entity.Property(p => p.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
@@ -282,6 +292,12 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
             entity.Property(us => us.PaymentStatus)
                 .IsRequired()
                 .HasMaxLength(50);
+
+            entity.Property(us => us.AutoRenewEnabled)
+                .HasDefaultValue(false);
+
+            entity.Property(us => us.LastAutoRenewError)
+                .HasMaxLength(500);
 
             entity.Property(us => us.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP");
@@ -371,6 +387,36 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
                 .WithMany(u => u.WebhookConfigurations)
                 .HasForeignKey(wc => wc.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DatabaseQueryHistory>(entity =>
+        {
+            entity.ToTable("DatabaseQueryHistory");
+            entity.HasKey(q => q.QueryHistoryId);
+
+            entity.Property(q => q.QueryText)
+                .IsRequired()
+                .HasColumnType("text");
+
+            entity.Property(q => q.ErrorMessage)
+                .HasColumnType("text");
+
+            entity.Property(q => q.ExecutedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.Property(q => q.EngineType)
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.HasOne(q => q.User)
+                .WithMany(u => u.QueryHistory)
+                .HasForeignKey(q => q.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(q => q.Instance)
+                .WithMany(i => i.QueryHistory)
+                .HasForeignKey(q => q.InstanceId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<WebhookLog>(entity =>

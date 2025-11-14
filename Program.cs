@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using ZenCloud.Data.DbContext;
 using Microsoft.OpenApi.Models;
 using DotNetEnv;
@@ -127,6 +128,7 @@ builder.Services.AddHttpContextAccessor();
 // Repositories (Data Access)
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IWebhookRepository, WebhookRepository>();
+builder.Services.AddScoped<IDatabaseQueryHistoryRepository, DatabaseQueryHistoryRepository>();
 
 // Services (Business Logic)
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -227,8 +229,10 @@ Para más información, visita: https://nebula.andrescortes.dev
     options.UseInlineDefinitionsForEnums();
 });
 
+var connectionString = ResolveConnectionString(builder.Configuration);
+
 builder.Services.AddDbContext<PgDbContext>(options =>
-    options.UseNpgsql(Environment.GetEnvironmentVariable("CONNECTION_STRING")));
+    options.UseNpgsql(connectionString));
 
 // JWT Configuration
 var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY") ?? 
@@ -271,6 +275,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 builder.Services.AddScoped<IDatabaseEngineService, DatabaseEngineService>();
 builder.Services.AddScoped<IWebhookService, WebhookService>();
+builder.Services.AddHostedService<SubscriptionLifecycleService>();
 
 // HttpClientFactory para WebhookService
 builder.Services.AddHttpClient();
@@ -333,3 +338,29 @@ app.MapGet("/", () => Results.Json(new
 app.MapGet("/health", () => Results.Ok("Healthy"));
 
 app.Run();
+
+static string ResolveConnectionString(ConfigurationManager configuration)
+{
+    var raw = Environment.GetEnvironmentVariable("CONNECTION_STRING");
+
+    if (string.IsNullOrWhiteSpace(raw))
+    {
+        raw = configuration.GetConnectionString("DefaultConnection");
+    }
+
+    if (string.IsNullOrWhiteSpace(raw))
+    {
+        throw new InvalidOperationException("Debe configurar la variable de entorno CONNECTION_STRING o ConnectionStrings:DefaultConnection.");
+    }
+
+    raw = raw.Trim();
+    raw = raw.Replace("\r", string.Empty)
+             .Replace("\n", string.Empty);
+
+    if (raw.StartsWith("\"") && raw.EndsWith("\"") && raw.Length > 1)
+    {
+        raw = raw[1..^1];
+    }
+
+    return raw;
+}

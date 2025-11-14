@@ -6,6 +6,9 @@ using ZenCloud.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Swashbuckle.AspNetCore.Annotations;
 using ZenCloud.Exceptions;
+using Microsoft.Extensions.Logging;
+using System;
+using System.IO;
 
 namespace ZenCloud.Controllers;
 
@@ -19,10 +22,22 @@ namespace ZenCloud.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ILogger<AuthController> _logger;
+    private static readonly Lazy<string> VerificationResultTemplate = new(() =>
+    {
+        var templatePath = Path.Combine(Directory.GetCurrentDirectory(), "Templates", "EmailVerificationResultTemplate.html");
+        if (System.IO.File.Exists(templatePath))
+        {
+            return System.IO.File.ReadAllText(templatePath);
+        }
 
-    public AuthController(IAuthService authService)
+        return @"<!DOCTYPE html><html lang=""es""><head><meta charset=""UTF-8""><title>ZenCloud · Verificación</title></head><body style=""font-family:Arial, sans-serif;background:#0f1014;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;""><div style=""max-width:480px;padding:32px;background:#161821;border-radius:24px;text-align:center;border:1px solid rgba(255,255,255,0.1);""><h1 style=""margin-bottom:12px;"">{{TITLE}}</h1><p style=""margin-bottom:24px;color:#bbb;"">{{MESSAGE}}</p><a href=""{{CTA_URL}}"" style=""display:inline-block;padding:12px 28px;border-radius:999px;background:#e78a53;color:#0f1014;text-decoration:none;font-weight:600;"">{{CTA_LABEL}}</a></div></body></html>";
+    });
+
+    public AuthController(IAuthService authService, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -74,19 +89,60 @@ public class AuthController : ControllerBase
     [SwaggerResponse(400, "Token o email inválido")]
     public async Task<IActionResult> VerifyEmail([FromQuery] string email, [FromQuery] string token)
     {
-        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(token))
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(token))
         {
-            throw new BadRequestException("Solicitud de verificación inválida. Email y token son requeridos.");
+            return RenderVerificationResult(new VerificationViewModel
+            {
+                IsSuccess = false,
+                Title = "Solicitud incompleta",
+                Message = "El enlace de verificación no contiene la información necesaria. Solicita un nuevo correo desde ZenCloud.",
+                StatusText = "Error de verificación",
+                CtaLabel = "Solicitar nuevo enlace",
+                CtaUrl = "https://nebula.andrescortes.dev/?action=resend"
+            });
         }
 
-        bool result = await _authService.VerifyEmailAsync(email, token);
+        VerificationViewModel viewModel;
 
-        if (!result)
+        try
         {
-            throw new BadRequestException("La verificación del email falló. El email o token son inválidos.");
+            bool verified = await _authService.VerifyEmailAsync(email, token);
+
+            viewModel = verified
+                ? new VerificationViewModel
+                {
+                    IsSuccess = true,
+                    Title = "¡Tu correo ha sido verificado!",
+                    Message = "Ya puedes iniciar sesión en ZenCloud para gestionar tus bases de datos.",
+                    StatusText = "Cuenta verificada",
+                    CtaLabel = "Ir al inicio de sesión",
+                    CtaUrl = "https://nebula.andrescortes.dev/?action=login"
+                }
+                : new VerificationViewModel
+                {
+                    IsSuccess = false,
+                    Title = "El enlace no es válido o expiró",
+                    Message = "Solicita un nuevo correo de verificación para completar el proceso.",
+                    StatusText = "Error de verificación",
+                    CtaLabel = "Solicitar nuevo enlace",
+                    CtaUrl = "https://nebula.andrescortes.dev/?action=resend"
+                };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verificando correo para {Email}", email);
+            viewModel = new VerificationViewModel
+            {
+                IsSuccess = false,
+                Title = "No pudimos validar tu cuenta",
+                Message = "Se produjo un error interno. Intenta nuevamente más tarde o solicita un nuevo enlace.",
+                StatusText = "Error de verificación",
+                CtaLabel = "Volver al inicio",
+                CtaUrl = "https://nebula.andrescortes.dev"
+            };
         }
 
-        return Ok(new { message = "Email verificado exitosamente. Ya puede iniciar sesión." });
+        return RenderVerificationResult(viewModel);
     }
 
     /// <summary>
@@ -187,4 +243,29 @@ public class AuthController : ControllerBase
 
         return Ok(new { message = "Contraseña restablecida exitosamente." });
     }
+
+    private ContentResult RenderVerificationResult(VerificationViewModel model)
+    {
+        var template = VerificationResultTemplate.Value;
+        var html = template
+            .Replace("{{STATUS_CLASS}}", model.StatusClass)
+            .Replace("{{STATUS_TEXT}}", model.StatusText)
+            .Replace("{{TITLE}}", model.Title)
+            .Replace("{{MESSAGE}}", model.Message)
+            .Replace("{{CTA_LABEL}}", model.CtaLabel)
+            .Replace("{{CTA_URL}}", model.CtaUrl);
+
+        return Content(html, "text/html; charset=utf-8");
+    }
+}
+
+record VerificationViewModel
+{
+    public bool IsSuccess { get; init; }
+    public string Title { get; init; } = string.Empty;
+    public string Message { get; init; } = string.Empty;
+    public string StatusText { get; init; } = string.Empty;
+    public string CtaLabel { get; init; } = string.Empty;
+    public string CtaUrl { get; init; } = string.Empty;
+    public string StatusClass => IsSuccess ? "success" : "error";
 }

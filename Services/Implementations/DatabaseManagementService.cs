@@ -3,9 +3,14 @@ using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using Npgsql;
 using System.Data;
+using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using ZenCloud.Data.DbContext;
 using ZenCloud.Data.Entities;
+using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.DTOs.DatabaseManagement;
 using ZenCloud.Services.Interfaces;
 
@@ -19,11 +24,15 @@ namespace ZenCloud.Services.Implementations
         private readonly IEncryptionService _encryptionService;
         private readonly PgDbContext _context;
         private readonly ILogger<DatabaseManagementService> _logger;
+        private readonly IDatabaseQueryHistoryRepository _queryHistoryRepository;
 
         private readonly Regex _validIdentifierRegex = new Regex("^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", RegexOptions.Compiled);
 
         private readonly Regex _sqlInjectionPattern = new Regex(@"(;(?!\s*$)|\-\-|#|/\*|\*/|union\s+select|drop\s+table|delete\s+from|grant\s+.*to|revoke\s+.*from|exec(\s+|ute)|xp_|sp_|load_file|outfile|dumpfile)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly string[] AllowedStatements = { "SELECT", "INSERT", "UPDATE", "DELETE", "SHOW", "DESCRIBE", "EXPLAIN", "CREATE", "ALTER", "DROP" };
+        private const string AllowedStatementsDescription = "Puedes ejecutar consultas individuales de lectura o mantenimiento (SELECT, INSERT, UPDATE, DELETE, SHOW, DESCRIBE, EXPLAIN, CREATE, ALTER y DROP).";
 
         public DatabaseManagementService(
             IMySQLConnectionManager connectionManager,
@@ -31,7 +40,8 @@ namespace ZenCloud.Services.Implementations
             IAuditService auditService,
             IEncryptionService encryptionService,
             PgDbContext context,
-            ILogger<DatabaseManagementService> logger)
+            ILogger<DatabaseManagementService> logger,
+            IDatabaseQueryHistoryRepository queryHistoryRepository)
         {
             _connectionManager = connectionManager;
             _queryExecutor = queryExecutor;
@@ -39,6 +49,7 @@ namespace ZenCloud.Services.Implementations
             _encryptionService = encryptionService;
             _context = context;
             _logger = logger;
+            _queryHistoryRepository = queryHistoryRepository;
         }
 
         public async Task<QueryResult> ExecuteQueryAsync(Guid instanceId, Guid userId, string query)
@@ -54,18 +65,31 @@ namespace ZenCloud.Services.Implementations
             ValidateCustomQuerySecurity(query);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
 
-            var result = await _queryExecutor.ExecuteSafeQueryAsync(connection, query);
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                var result = await _queryExecutor.ExecuteSafeQueryAsync(connection, query);
+                stopwatch.Stop();
 
-            await _auditService.LogDatabaseEventAsync(
-                userId,
-                instanceId,
-                AuditAction.DatabaseUpdated,
-                $"Query executed: {GetQueryType(query)}, Success: {result.Success}, Rows: {result.Rows.Count}"
-            );
+                await PersistQueryHistoryAsync(instance, userId, query, result.Success, result.Rows.Count, stopwatch.Elapsed.TotalMilliseconds, result.ErrorMessage);
 
-            return result;
+                await _auditService.LogDatabaseEventAsync(
+                    userId,
+                    instanceId,
+                    AuditAction.DatabaseUpdated,
+                    $"Query executed: {GetQueryType(query)}, Success: {result.Success}, Rows: {result.Rows.Count}"
+                );
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+                throw;
+            }
         }
 
         public async Task<List<TableInfo>> GetTablesAsync(Guid instanceId, Guid userId)
@@ -434,6 +458,57 @@ namespace ZenCloud.Services.Implementations
             return true;
         }
 
+        public async Task<IReadOnlyList<QueryHistoryItemDto>> GetQueryHistoryAsync(Guid instanceId, Guid userId, int limit = 20)
+        {
+            await ValidateUserAccessAsync(instanceId, userId);
+            var cappedLimit = Math.Clamp(limit, 1, 100);
+            var entries = await _queryHistoryRepository.GetRecentByUserAndInstanceAsync(userId, instanceId, cappedLimit);
+
+            return entries
+                .Select(entry => new QueryHistoryItemDto
+                {
+                    Id = entry.QueryHistoryId,
+                    Query = entry.QueryText,
+                    Success = entry.IsSuccess,
+                    RowCount = entry.RowCount,
+                    ExecutionTimeMs = entry.ExecutionTimeMs,
+                    Error = entry.ErrorMessage,
+                    ExecutedAt = entry.ExecutedAt
+                })
+                .ToList();
+        }
+
+        public async Task<DatabaseExportResult> ExportDatabaseAsync(Guid instanceId, Guid userId)
+        {
+            await ValidateUserAccessAsync(instanceId, userId);
+            var instance = await GetDatabaseInstanceAsync(instanceId);
+
+            string dumpContent = instance.Engine?.EngineName switch
+            {
+                DatabaseEngineType.MySQL => await ExportMySqlAsync(instance),
+                DatabaseEngineType.PostgreSQL => await ExportPostgreSqlAsync(instance),
+                _ => throw new NotSupportedException("La exportación solo está disponible para bases de datos MySQL y PostgreSQL.")
+            };
+
+            return new DatabaseExportResult
+            {
+                Content = Encoding.UTF8.GetBytes(dumpContent),
+                FileName = $"{instance.DatabaseName}_{DateTime.UtcNow:yyyyMMddHHmmss}.sql"
+            };
+        }
+
+        private async Task<string> ExportMySqlAsync(DatabaseInstance instance)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
+            return await BuildMySqlDumpAsync(connection, instance.DatabaseName);
+        }
+
+        private async Task<string> ExportPostgreSqlAsync(DatabaseInstance instance)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+            return await BuildPostgresDumpAsync(connection, instance.DatabaseName);
+        }
+
         #region Métodos de Seguridad
 
         private bool IsValidDatabaseIdentifier(string identifier)
@@ -475,26 +550,23 @@ namespace ZenCloud.Services.Implementations
             if (string.IsNullOrWhiteSpace(query))
                 throw new ArgumentException("La consulta no puede estar vacía");
 
-            if (query.Length > 10000) // Aumentado para CREATE TABLE complejos
-                throw new ArgumentException("La consulta es demasiado larga");
+            if (query.Length > 10000)
+                throw new InvalidOperationException("La consulta es demasiado larga. Divide la instrucción o limita la cantidad de columnas/filas.");
 
-            // Remover el punto y coma final antes de validar
             var queryToValidate = query.TrimEnd();
             if (queryToValidate.EndsWith(";"))
                 queryToValidate = queryToValidate[..^1].Trim();
 
             if (_sqlInjectionPattern.IsMatch(queryToValidate))
-                throw new InvalidOperationException("La consulta contiene patrones potencialmente peligrosos");
+                throw new InvalidOperationException($"La consulta contiene patrones que no están permitidos por seguridad. {AllowedStatementsDescription}");
 
-            var allowedFirstWords = new[] { "SELECT", "CREATE", "SHOW", "DESCRIBE", "EXPLAIN", "ALTER", "DROP", "INSERT", "UPDATE" };
             var firstWord = queryToValidate.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToUpper();
 
-            if (firstWord == null || !allowedFirstWords.Contains(firstWord))
-                throw new InvalidOperationException($"Tipo de consulta no permitido: {firstWord}");
+            if (firstWord == null || !AllowedStatements.Contains(firstWord))
+                throw new InvalidOperationException($"Tipo de consulta no permitido ({firstWord ?? "desconocido"}). {AllowedStatementsDescription}");
 
-            // Verificar múltiples statements (no un solo ; al final)
             if (queryToValidate.Contains(';'))
-                throw new InvalidOperationException("Múltiples consultas no están permitidas");
+                throw new InvalidOperationException("Solo se permite ejecutar una consulta por vez. Elimina los puntos y coma intermedios para evitar múltiples sentencias.");
         }
 
         private async Task<QueryResult> ExecuteParameterizedQueryAsync(MySqlConnection connection, string query, object parameters)
@@ -545,6 +617,302 @@ namespace ZenCloud.Services.Implementations
         #endregion
 
         #region Métodos Auxiliares
+
+        private async Task<string> BuildMySqlDumpAsync(MySqlConnection connection, string databaseName)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("-- ZenCloud SQL Export");
+            builder.AppendLine($"-- Database: `{databaseName}`");
+            builder.AppendLine($"-- Generated at: {DateTime.UtcNow:O}");
+            builder.AppendLine("SET FOREIGN_KEY_CHECKS=0;");
+
+            var tables = new List<string>();
+            using (var showTablesCommand = new MySqlCommand("SHOW TABLES;", connection))
+            using (var reader = await showTablesCommand.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    tables.Add(reader.GetString(0));
+                }
+            }
+
+            foreach (var table in tables)
+            {
+                builder.AppendLine();
+                builder.AppendLine($"-- ----------------------------");
+                builder.AppendLine($"-- Table structure for `{table}`");
+                builder.AppendLine($"DROP TABLE IF EXISTS `{table}`;");
+
+                using (var createCommand = new MySqlCommand($"SHOW CREATE TABLE `{table}`;", connection))
+                using (var createReader = await createCommand.ExecuteReaderAsync())
+                {
+                    if (await createReader.ReadAsync())
+                    {
+                        var createStatement = createReader.GetString(1);
+                        builder.AppendLine($"{createStatement};");
+                    }
+                }
+
+                builder.AppendLine();
+                builder.AppendLine($"-- Data for table `{table}`");
+
+                using (var dataCommand = new MySqlCommand($"SELECT * FROM `{table}`;", connection))
+                using (var dataReader = await dataCommand.ExecuteReaderAsync())
+                {
+                    while (await dataReader.ReadAsync())
+                    {
+                        var values = new string[dataReader.FieldCount];
+                        for (int i = 0; i < dataReader.FieldCount; i++)
+                        {
+                            values[i] = FormatSqlValue(dataReader.IsDBNull(i) ? null : dataReader.GetValue(i));
+                        }
+
+                        builder.AppendLine($"INSERT INTO `{table}` VALUES ({string.Join(", ", values)});");
+                    }
+                }
+            }
+
+            builder.AppendLine("SET FOREIGN_KEY_CHECKS=1;");
+            return builder.ToString();
+        }
+
+        private async Task<NpgsqlConnection> CreatePostgresConnectionAsync(DatabaseInstance instance)
+        {
+            var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+            decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
+
+            var connectionBuilder = new NpgsqlConnectionStringBuilder
+            {
+                Host = string.IsNullOrWhiteSpace(instance.ServerIpAddress) ? "127.0.0.1" : instance.ServerIpAddress,
+                Port = instance.AssignedPort > 0 ? instance.AssignedPort : 5432,
+                Database = instance.DatabaseName,
+                Username = instance.DatabaseUser,
+                Password = decryptedPassword,
+                Timeout = 30,
+                CommandTimeout = 60,
+                Pooling = false
+            };
+
+            var connection = new NpgsqlConnection(connectionBuilder.ConnectionString);
+            await connection.OpenAsync();
+            return connection;
+        }
+
+        private async Task<string> BuildPostgresDumpAsync(NpgsqlConnection connection, string databaseName)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("-- ZenCloud SQL Export (PostgreSQL)");
+            builder.AppendLine($"-- Database: \"{databaseName}\"");
+            builder.AppendLine($"-- Generated at: {DateTime.UtcNow:O}");
+            builder.AppendLine("SET statement_timeout = 0;");
+            builder.AppendLine("SET lock_timeout = 0;");
+            builder.AppendLine("SET client_encoding = 'UTF8';");
+            builder.AppendLine("SET standard_conforming_strings = on;");
+            builder.AppendLine();
+
+            var tables = new List<string>();
+            const string tableSql = @"
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                ORDER BY table_name;";
+
+            await using (var command = new NpgsqlCommand(tableSql, connection))
+            await using (var reader = await command.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    tables.Add(reader.GetString(0));
+                }
+            }
+
+            foreach (var table in tables)
+            {
+                builder.AppendLine();
+                builder.AppendLine($"-- Table: \"{table}\"");
+                builder.AppendLine($"DROP TABLE IF EXISTS \"{table}\" CASCADE;");
+
+                var columnDefinitions = await GetPostgresColumnDefinitionsAsync(connection, table);
+                builder.AppendLine($"CREATE TABLE \"{table}\" (");
+                builder.AppendLine(string.Join(",\n", columnDefinitions.Select(column => $"    {column}")));
+                builder.AppendLine(");");
+
+                var primaryKeys = await GetPostgresPrimaryKeyColumnsAsync(connection, table);
+                if (primaryKeys.Count > 0)
+                {
+                    builder.AppendLine($"ALTER TABLE ONLY \"{table}\" ADD CONSTRAINT \"{table}_pkey\" PRIMARY KEY ({string.Join(", ", primaryKeys.Select(pk => $"\"{pk}\""))});");
+                }
+
+                await AppendPostgresTableDataAsync(connection, table, builder);
+            }
+
+            return builder.ToString();
+        }
+
+        private async Task<List<string>> GetPostgresColumnDefinitionsAsync(NpgsqlConnection connection, string table)
+        {
+            const string columnsSql = @"
+                SELECT column_name,
+                       data_type,
+                       is_nullable,
+                       character_maximum_length,
+                       numeric_precision,
+                       numeric_scale,
+                       column_default
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = @table
+                ORDER BY ordinal_position;";
+
+            var definitions = new List<string>();
+            await using var command = new NpgsqlCommand(columnsSql, connection);
+            command.Parameters.AddWithValue("table", table);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var columnName = reader.GetString(0);
+                var dataType = reader.GetString(1);
+                var isNullable = reader.GetString(2).Equals("YES", StringComparison.OrdinalIgnoreCase);
+                var charLength = reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3);
+                var numericPrecision = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4);
+                var numericScale = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5);
+                var defaultValue = reader.IsDBNull(6) ? null : reader.GetString(6);
+
+                var resolvedType = ResolvePostgresColumnType(dataType, charLength, numericPrecision, numericScale);
+                var definition = $"\"{columnName}\" {resolvedType}";
+
+                if (!string.IsNullOrWhiteSpace(defaultValue))
+                {
+                    definition += $" DEFAULT {defaultValue}";
+                }
+
+                if (!isNullable)
+                {
+                    definition += " NOT NULL";
+                }
+
+                definitions.Add(definition);
+            }
+
+            return definitions;
+        }
+
+        private static string ResolvePostgresColumnType(string dataType, int? charLength, int? numericPrecision, int? numericScale)
+        {
+            return dataType switch
+            {
+                "character varying" or "varchar" or "character" or "char" => charLength.HasValue ? $"{dataType}({charLength.Value})" : dataType,
+                "numeric" or "decimal" => numericPrecision.HasValue
+                    ? $"{dataType}({numericPrecision.Value}{(numericScale.HasValue ? $", {numericScale.Value}" : string.Empty)})"
+                    : dataType,
+                _ => dataType
+            };
+        }
+
+        private async Task<List<string>> GetPostgresPrimaryKeyColumnsAsync(NpgsqlConnection connection, string table)
+        {
+            const string pkSql = @"
+                SELECT a.attname
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+                WHERE i.indisprimary = true
+                    AND n.nspname = 'public'
+                    AND c.relname = @table
+                ORDER BY a.attnum;";
+
+            var columns = new List<string>();
+            await using var command = new NpgsqlCommand(pkSql, connection);
+            command.Parameters.AddWithValue("table", table);
+
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                columns.Add(reader.GetString(0));
+            }
+
+            return columns;
+        }
+
+        private async Task AppendPostgresTableDataAsync(NpgsqlConnection connection, string table, StringBuilder builder)
+        {
+            builder.AppendLine();
+            builder.AppendLine($"-- Data for table \"{table}\"");
+
+            var selectSql = $"SELECT * FROM \"{table}\";";
+            await using var command = new NpgsqlCommand(selectSql, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                var values = new string[reader.FieldCount];
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    values[i] = FormatSqlValue(reader.IsDBNull(i) ? null : reader.GetValue(i), usePostgresSyntax: true);
+                }
+
+                builder.AppendLine($"INSERT INTO \"{table}\" VALUES ({string.Join(", ", values)});");
+            }
+        }
+
+        private string FormatSqlValue(object? value, bool usePostgresSyntax = false)
+        {
+            if (value == null || value == DBNull.Value)
+            {
+                return "NULL";
+            }
+
+            switch (value)
+            {
+                case bool booleanValue:
+                    return usePostgresSyntax ? (booleanValue ? "TRUE" : "FALSE") : (booleanValue ? "1" : "0");
+                case byte or sbyte or short or ushort or int or uint or long or ulong:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture) ?? "0";
+                case float or double or decimal:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture) ?? "0";
+                case DateTime dateTime:
+                    return $"'{dateTime:yyyy-MM-dd HH:mm:ss}'";
+                case byte[] bytes:
+                    var hex = BitConverter.ToString(bytes).Replace("-", string.Empty);
+                    return usePostgresSyntax
+                        ? $"E'\\\\x{hex.ToLowerInvariant()}'"
+                        : $"X'{hex}'";
+                default:
+                    var stringValue = Convert.ToString(value) ?? string.Empty;
+                    var escaped = usePostgresSyntax
+                        ? stringValue.Replace("'", "''")
+                        : MySqlHelper.EscapeString(stringValue);
+                    return $"'{escaped}'";
+            }
+        }
+
+        private async Task PersistQueryHistoryAsync(DatabaseInstance instance, Guid userId, string query, bool success, int? rowCount, double elapsedMilliseconds, string? errorMessage)
+        {
+            try
+            {
+                var sanitizedQuery = query.Length > 8000 ? query[..8000] : query;
+                var entry = new DatabaseQueryHistory
+                {
+                    QueryHistoryId = Guid.NewGuid(),
+                    InstanceId = instance.InstanceId,
+                    UserId = userId,
+                    QueryText = sanitizedQuery,
+                    IsSuccess = success,
+                    RowCount = rowCount,
+                    ExecutionTimeMs = Math.Round(elapsedMilliseconds, 2),
+                    ErrorMessage = success ? null : errorMessage,
+                    ExecutedAt = DateTime.UtcNow,
+                    EngineType = instance.Engine?.EngineName
+                };
+
+                await _queryHistoryRepository.AddAsync(entry);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist query history for instance {InstanceId}", instance.InstanceId);
+            }
+        }
 
         private async Task ValidateUserAccessAsync(Guid instanceId, Guid userId)
         {

@@ -31,6 +31,13 @@ public class DatabaseInstanceRepository : Repository<DatabaseInstance>, IDatabas
             .CountAsync();
     }
 
+    public async Task<int> CountActiveByUserAsync(Guid userId)
+    {
+        return await _dbSet
+            .Where(db => db.UserId == userId && db.Status == DatabaseInstanceStatus.Active)
+            .CountAsync();
+    }
+
     //Looks for a database by its name
     public async Task<bool> DatabaseNameExistsAsync(string databaseName)
     {
