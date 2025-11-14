@@ -15,12 +15,18 @@ public class PaymentsController : ControllerBase
     private readonly MercadoPagoService _mpService;
     private readonly IPlanRepository _planRepository;
     private readonly ISubscriptionRepository _subscriptionRepository;
+    private readonly IPaymentRepository _paymentRepository;
 
-    public PaymentsController(MercadoPagoService mpService, IPlanRepository planRepository, ISubscriptionRepository subscriptionRepository)
+    public PaymentsController(
+        MercadoPagoService mpService, 
+        IPlanRepository planRepository, 
+        ISubscriptionRepository subscriptionRepository,
+        IPaymentRepository paymentRepository)
     {
         _mpService = mpService;
         _planRepository = planRepository;
         _subscriptionRepository = subscriptionRepository;
+        _paymentRepository = paymentRepository;
     }
 
     // Endpoint para crear pagos de suscripción
@@ -57,8 +63,8 @@ public class PaymentsController : ControllerBase
             var paymentUrl = await _mpService.CreateSubscriptionPreferenceAsync(
                 userId,
                 request.PlanId,
-                successUrl: "https://nebula.andrescortes.dev/payment/success",
-                failureUrl: "https://nebula.andrescortes.dev/payment/failure", 
+                successUrl: "https://nebula.andrescortes.dev/success",
+                failureUrl: "https://nebula.andrescortes.dev/failure", 
                 notificationUrl: "https://service.nebula.andrescortes.dev/api/Payments/webhook"
             );
 
@@ -157,6 +163,45 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             Console.WriteLine($"Error obteniendo suscripción actual: {ex.Message}");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    // Obtener historial de pagos del usuario
+    [HttpGet("history")]
+    [Authorize]
+    public async Task<IActionResult> GetPaymentHistory()
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            var payments = await _paymentRepository.GetByUserIdAsync(userId);
+            
+            var history = payments.Select(p => new PaymentHistoryResponseDto
+            {
+                PaymentId = p.PaymentId,
+                Amount = p.Amount,
+                Currency = p.Currency,
+                Status = p.PaymentStatus.ToString(),
+                PaymentMethod = p.PaymentMethod,
+                TransactionDate = p.TransactionDate,
+                CreatedAt = p.CreatedAt,
+                MercadoPagoPaymentId = p.MercadoPagoPaymentId,
+                PlanName = p.Subscription?.Plan?.PlanName.ToString() ?? "N/A",
+                SubscriptionId = p.SubscriptionId
+            }).ToList();
+
+            return Ok(new { data = history });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error obteniendo historial de pagos: {ex.Message}");
             return StatusCode(500, new { error = ex.Message });
         }
     }
