@@ -143,15 +143,29 @@ public class DatabaseInstanceController : ControllerBase
     [HttpDelete("{instanceId}")]
     [SwaggerOperation(
         Summary = "Eliminar base de datos",
-        Description = "Elimina una instancia de base de datos. También elimina la base de datos física del servidor."
+        Description = "Elimina una instancia de base de datos. También elimina la base de datos física del servidor. Solo se pueden eliminar bases de datos desactivadas."
     )]
     [SwaggerResponse(200, "Base de datos eliminada exitosamente")]
     [SwaggerResponse(400, "Error al eliminar")]
     [SwaggerResponse(404, "Base de datos no encontrada")]
-    public async Task<IActionResult> DeleteDatabase(Guid instanceId, [FromQuery] Guid userId)
+    public async Task<IActionResult> DeleteDatabase(Guid instanceId)
     {
-        await _databaseInstanceService.DeleteDatabaseInstanceAsync(instanceId, userId);
-        return Ok(new { message = "Base de datos eliminada exitosamente" });
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            await _databaseInstanceService.DeleteDatabaseInstanceAsync(instanceId, userId);
+            return Ok(new { message = "Base de datos eliminada exitosamente" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     /// <summary>
@@ -200,6 +214,120 @@ public class DatabaseInstanceController : ControllerBase
             return Ok(new
             {
                 message = "Credenciales rotadas exitosamente. Las nuevas credenciales se han enviado por correo electrónico.",
+                data = response
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Activa una base de datos desactivada
+    /// </summary>
+    /// <param name="instanceId">ID de la instancia de base de datos</param>
+    /// <returns>Información actualizada de la base de datos</returns>
+    /// <response code="200">Base de datos activada exitosamente</response>
+    /// <response code="400">Error al activar la base de datos</response>
+    /// <response code="404">Base de datos no encontrada</response>
+    /// <response code="409">Límite de bases activas alcanzado</response>
+    [HttpPost("{instanceId}/activate")]
+    [SwaggerOperation(
+        Summary = "Activar base de datos",
+        Description = "Activa una base de datos que estaba desactivada. Valida que el usuario no haya alcanzado el límite de bases activas según su plan."
+    )]
+    [SwaggerResponse(200, "Base de datos activada exitosamente")]
+    [SwaggerResponse(400, "Error al activar la base de datos")]
+    [SwaggerResponse(404, "Base de datos no encontrada")]
+    [SwaggerResponse(409, "Límite de bases activas alcanzado")]
+    public async Task<IActionResult> ActivateDatabase(Guid instanceId)
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            var database = await _databaseInstanceService.ActivateDatabaseAsync(instanceId, userId);
+            
+            var response = new DatabaseInstanceResponseDto
+            {
+                InstanceId = database.InstanceId,
+                DatabaseName = database.DatabaseName,
+                DatabaseUser = database.DatabaseUser,
+                AssignedPort = database.AssignedPort,
+                ConnectionString = database.ConnectionString,
+                Status = database.Status.ToString(),
+                EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
+                CreatedAt = database.CreatedAt,
+                ServerIpAddress = database.ServerIpAddress
+            };
+            
+            return Ok(new
+            {
+                message = "Base de datos activada exitosamente",
+                data = response
+            });
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Desactiva una base de datos activa
+    /// </summary>
+    /// <param name="instanceId">ID de la instancia de base de datos</param>
+    /// <returns>Información actualizada de la base de datos</returns>
+    /// <response code="200">Base de datos desactivada exitosamente</response>
+    /// <response code="400">Error al desactivar la base de datos</response>
+    /// <response code="404">Base de datos no encontrada</response>
+    [HttpPost("{instanceId}/deactivate")]
+    [SwaggerOperation(
+        Summary = "Desactivar base de datos",
+        Description = "Desactiva una base de datos activa. La base de datos permanecerá en el sistema pero no estará disponible para uso."
+    )]
+    [SwaggerResponse(200, "Base de datos desactivada exitosamente")]
+    [SwaggerResponse(400, "Error al desactivar la base de datos")]
+    [SwaggerResponse(404, "Base de datos no encontrada")]
+    public async Task<IActionResult> DeactivateDatabase(Guid instanceId)
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            var database = await _databaseInstanceService.DeactivateDatabaseAsync(instanceId, userId);
+            
+            var response = new DatabaseInstanceResponseDto
+            {
+                InstanceId = database.InstanceId,
+                DatabaseName = database.DatabaseName,
+                DatabaseUser = database.DatabaseUser,
+                AssignedPort = database.AssignedPort,
+                ConnectionString = database.ConnectionString,
+                Status = database.Status.ToString(),
+                EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
+                CreatedAt = database.CreatedAt,
+                ServerIpAddress = database.ServerIpAddress
+            };
+            
+            return Ok(new
+            {
+                message = "Base de datos desactivada exitosamente",
                 data = response
             });
         }

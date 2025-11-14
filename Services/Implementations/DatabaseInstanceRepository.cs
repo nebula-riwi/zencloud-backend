@@ -11,12 +11,13 @@ public class DatabaseInstanceRepository : Repository<DatabaseInstance>, IDatabas
     {
     }
     
-    //Gets all databases by user Id
+    //Gets all databases by user Id (active and inactive, but not deleted)
     public async Task<IEnumerable<DatabaseInstance>> GetByUserIdAsync(Guid userId)
     {
         return await _dbSet
-            .Where(db => db.UserId == userId && db.Status == DatabaseInstanceStatus.Active)
+            .Where(db => db.UserId == userId && db.Status != DatabaseInstanceStatus.Deleted)
             .Include(db => db.Engine)
+            .OrderByDescending(db => db.CreatedAt)
             .ToListAsync();
     }
     
