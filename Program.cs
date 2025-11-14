@@ -17,6 +17,7 @@ using ZenCloud.Validators;
 using ZenCloud.Middleware;
 using AspNetCoreRateLimit;
 using System.Reflection;
+using ZenCloud.Data.Seed;
 
 // Cargar variables de entorno desde .env si existe
 try
@@ -281,6 +282,8 @@ builder.Services.AddHostedService<SubscriptionLifecycleService>();
 builder.Services.AddHttpClient();
 
 var app = builder.Build();
+
+await DataSeeder.SeedAsync(app.Services);
 
 // Configure the HTTP request pipeline.
 
