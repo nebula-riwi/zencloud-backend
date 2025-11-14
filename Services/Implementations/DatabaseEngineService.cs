@@ -60,6 +60,27 @@ public class DatabaseEngineService : IDatabaseEngineService
         }
     }
 
+    public async Task RotateCredentialsAsync(string engineName, string databaseName, string oldUsername, string newUsername, string newPassword)
+    {
+        switch (engineName.ToLower())
+        {
+            case "mysql":
+                await RotateMySqlCredentialsAsync(databaseName, oldUsername, newUsername, newPassword);
+                break;
+            case "postgresql":
+                await RotatePostgreSqlCredentialsAsync(databaseName, oldUsername, newUsername, newPassword);
+                break;
+            case "mongodb":
+                await RotateMongoCredentialsAsync(databaseName, oldUsername, newUsername, newPassword);
+                break;
+            case "redis":
+                await RotateRedisCredentialsAsync(databaseName, oldUsername, newUsername, newPassword);
+                break;
+            default:
+                throw new NotSupportedException($"Motor {engineName} no soportado para rotación de credenciales");
+        }
+    }
+
     private async Task CreateMySqlDatabaseAsync(string databaseName, string username, string password)
     {
         var host = _configuration["MYSQL_HOST"] ?? throw new InvalidOperationException("MYSQL_HOST no configurado");
@@ -413,6 +434,232 @@ public class DatabaseEngineService : IDatabaseEngineService
         {
             // No es crítico si falla la eliminación del usuario (podría no existir)
             Console.WriteLine($"Advertencia: Error al eliminar usuario ACL '{username}': {ex.Message}");
+        }
+    }
+
+    private async Task RotateMySqlCredentialsAsync(string databaseName, string oldUsername, string newUsername, string newPassword)
+    {
+        var host = _configuration["MYSQL_HOST"] ?? throw new InvalidOperationException("MYSQL_HOST no configurado");
+        var port = _configuration["MYSQL_PORT"] ?? throw new InvalidOperationException("MYSQL_PORT no configurado");
+        var adminUser = _configuration["MYSQL_ADMIN_USER"] ?? throw new InvalidOperationException("MYSQL_ADMIN_USER no configurado");
+        var adminPassword = _configuration["MYSQL_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("MYSQL_ADMIN_PASSWORD no configurado");
+        
+        var adminConnectionString = 
+            $"Server={host};Port={port};User={adminUser};Password={adminPassword};Database=mysql;Connection Timeout=30;";
+        
+        using var connection = new MySqlConnection(adminConnectionString);
+        await connection.OpenAsync();
+
+        try
+        {
+            // 1. Crear el nuevo usuario
+            var createUserCommand = new MySqlCommand(
+                $"CREATE USER IF NOT EXISTS '{newUsername}'@'%' IDENTIFIED BY '{newPassword}';", 
+                connection);
+            await createUserCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Nuevo usuario MySQL '{newUsername}' creado");
+
+            // 2. Asignar permisos al nuevo usuario
+            var grantCommand = new MySqlCommand(
+                $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{newUsername}'@'%';", 
+                connection);
+            await grantCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Permisos otorgados a '{newUsername}' en '{databaseName}'");
+
+            // 3. Eliminar el usuario antiguo (si existe y es diferente)
+            if (oldUsername != newUsername)
+            {
+                var dropUserCommand = new MySqlCommand($"DROP USER IF EXISTS '{oldUsername}'@'%';", connection);
+                await dropUserCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+            }
+            else
+            {
+                // Si el usuario es el mismo, solo actualizar la contraseña
+                var alterUserCommand = new MySqlCommand(
+                    $"ALTER USER '{newUsername}'@'%' IDENTIFIED BY '{newPassword}';", 
+                    connection);
+                await alterUserCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+            }
+
+            // 4. Aplicar cambios
+            var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
+            await flushCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Privilegios aplicados");
+        }
+        catch (MySqlException ex)
+        {
+            throw new InvalidOperationException($"Error rotando credenciales MySQL: {ex.Message}", ex);
+        }
+    }
+
+    private async Task RotatePostgreSqlCredentialsAsync(string databaseName, string oldUsername, string newUsername, string newPassword)
+    {
+        var host = _configuration["POSTGRES_HOST"] ?? throw new InvalidOperationException("POSTGRES_HOST no configurado");
+        var port = _configuration["POSTGRES_PORT"] ?? throw new InvalidOperationException("POSTGRES_PORT no configurado");
+        var adminUser = _configuration["POSTGRES_ADMIN_USER"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_USER no configurado");
+        var adminPassword = _configuration["POSTGRES_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_PASSWORD no configurado");
+        
+        var adminConnectionString = 
+            $"Host={host};Port={port};Username={adminUser};Password={adminPassword};Database=postgres;Timeout=30;";
+        
+        await using var connection = new NpgsqlConnection(adminConnectionString);
+        await connection.OpenAsync();
+
+        try
+        {
+            var escapedNewUsername = $"\"{newUsername.Replace("\"", "\"\"")}\"";
+            var escapedOldUsername = $"\"{oldUsername.Replace("\"", "\"\"")}\"";
+            var escapedDatabaseName = $"\"{databaseName.Replace("\"", "\"\"")}\"";
+
+            // 1. Crear el nuevo usuario (si no existe)
+            var createUserCommand = new NpgsqlCommand(
+                $"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '{newUsername}') THEN CREATE USER {escapedNewUsername} WITH PASSWORD '{newPassword.Replace("'", "''")}'; END IF; END $$;",
+                connection);
+            await createUserCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Nuevo usuario PostgreSQL '{newUsername}' creado o ya existe");
+
+            // 2. Asignar permisos al nuevo usuario
+            var grantCommand = new NpgsqlCommand(
+                $"GRANT ALL PRIVILEGES ON DATABASE {escapedDatabaseName} TO {escapedNewUsername};",
+                connection);
+            await grantCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Permisos otorgados a '{newUsername}' en '{databaseName}'");
+
+            // 3. Cambiar el owner de la base de datos al nuevo usuario
+            var alterDbCommand = new NpgsqlCommand(
+                $"ALTER DATABASE {escapedDatabaseName} OWNER TO {escapedNewUsername};",
+                connection);
+            await alterDbCommand.ExecuteNonQueryAsync();
+            Console.WriteLine($"Owner de '{databaseName}' cambiado a '{newUsername}'");
+
+            // 4. Eliminar el usuario antiguo (si existe y es diferente)
+            if (oldUsername != newUsername)
+            {
+                var dropUserCommand = new NpgsqlCommand($"DROP USER IF EXISTS {escapedOldUsername};", connection);
+                await dropUserCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+            }
+            else
+            {
+                // Si el usuario es el mismo, solo actualizar la contraseña
+                var alterUserCommand = new NpgsqlCommand(
+                    $"ALTER USER {escapedNewUsername} WITH PASSWORD '{newPassword.Replace("'", "''")}';",
+                    connection);
+                await alterUserCommand.ExecuteNonQueryAsync();
+                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+            }
+        }
+        catch (PostgresException ex)
+        {
+            throw new InvalidOperationException($"Error rotando credenciales PostgreSQL: {ex.Message} (SQL State: {ex.SqlState})", ex);
+        }
+    }
+
+    private async Task RotateMongoCredentialsAsync(string databaseName, string oldUsername, string newUsername, string newPassword)
+    {
+        var host = _configuration["MONGO_HOST"];
+        var port = _configuration["MONGO_PORT"];
+        var adminUser = _configuration["MONGO_ADMIN_USER"] ?? "root";
+        var adminPassword = _configuration["MONGO_ADMIN_PASSWORD"];
+        
+        var encodedPassword = Uri.EscapeDataString(adminPassword);
+        var adminConnectionString = $"mongodb://{adminUser}:{encodedPassword}@{host}:{port}/?authSource=admin";
+        
+        var client = new MongoClient(adminConnectionString);
+        var targetDatabase = client.GetDatabase(databaseName);
+        
+        var roles = new List<BsonDocument> {
+            new BsonDocument {
+                { "role", "dbOwner" },
+                { "db", databaseName }
+            }
+        };
+
+        try
+        {
+            // 1. Crear el nuevo usuario
+            await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ createUser: \"{newUsername}\", pwd: \"{newPassword}\", roles: {BsonArray.Create(roles).ToJson()} }}");
+            Console.WriteLine($"Nuevo usuario MongoDB '{newUsername}' creado");
+
+            // 2. Eliminar el usuario antiguo (si existe y es diferente)
+            if (oldUsername != newUsername)
+            {
+                try
+                {
+                    await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ dropUser: \"{oldUsername}\" }}");
+                    Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+                }
+                catch (MongoCommandException ex) when (ex.Code == 11)
+                {
+                    Console.WriteLine($"Usuario antiguo '{oldUsername}' no encontrado. Continuando...");
+                }
+            }
+            else
+            {
+                // Si el usuario es el mismo, actualizar la contraseña
+                await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ updateUser: \"{newUsername}\", pwd: \"{newPassword}\" }}");
+                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+            }
+        }
+        catch (MongoWriteException ex) when (ex.WriteConcernError?.Code == 51003)
+        {
+            // Usuario ya existe, actualizar contraseña
+            await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ updateUser: \"{newUsername}\", pwd: \"{newPassword}\" }}");
+            Console.WriteLine($"Contraseña actualizada para usuario existente '{newUsername}'");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error rotando credenciales MongoDB: {ex.Message}", ex);
+        }
+    }
+
+    private async Task RotateRedisCredentialsAsync(string databaseName, string oldUsername, string newUsername, string newPassword)
+    {
+        var host = _configuration["REDIS_HOST"];
+        var port = _configuration["REDIS_PORT"];
+        var adminPassword = _configuration["REDIS_ADMIN_PASSWORD"];
+
+        var config = new ConfigurationOptions()
+        {
+            EndPoints = { { host, int.Parse(port) } },
+            Password = adminPassword,
+            AllowAdmin = true
+        };
+
+        using var connection = await ConnectionMultiplexer.ConnectAsync(config);
+        var server = connection.GetServer(host, int.Parse(port));
+
+        try
+        {
+            // 1. Crear el nuevo usuario ACL
+            await server.ExecuteAsync("ACL", new[] { "SETUSER", newUsername, "on", $">{newPassword}", "+@all", "&*" });
+            Console.WriteLine($"Nuevo usuario Redis '{newUsername}' creado");
+
+            // 2. Eliminar el usuario antiguo (si existe y es diferente)
+            if (oldUsername != newUsername)
+            {
+                try
+                {
+                    await server.ExecuteAsync("ACL", "DELUSER", oldUsername);
+                    Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Advertencia: Error al eliminar usuario antiguo '{oldUsername}': {ex.Message}");
+                }
+            }
+            else
+            {
+                // Si el usuario es el mismo, actualizar la contraseña
+                await server.ExecuteAsync("ACL", new[] { "SETUSER", newUsername, "on", $">{newPassword}", "+@all", "&*" });
+                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error rotando credenciales Redis: {ex.Message}", ex);
         }
     }
 }

@@ -12,6 +12,7 @@ public class DatabaseInstance
     public string ConnectionString  { get; set; } = null!;
     public DatabaseInstanceStatus Status { get; set; } = DatabaseInstanceStatus.Active;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? DeletedAt { get; set; }
     public string ServerIpAddress { get; set; } = null!;
 

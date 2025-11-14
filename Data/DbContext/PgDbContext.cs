@@ -113,6 +113,9 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
             entity.Property(di => di.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+            entity.Property(di => di.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
             entity.Property(di => di.ServerIpAddress)
                 .HasMaxLength(50);
 

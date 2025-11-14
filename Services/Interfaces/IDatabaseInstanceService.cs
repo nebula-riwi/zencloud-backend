@@ -8,4 +8,5 @@ public interface IDatabaseInstanceService
     Task<DatabaseInstance?> GetDatabaseByIdAsync(Guid instanceId);
     Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId, string? databaseName = null);
     Task DeleteDatabaseInstanceAsync(Guid instanceId, Guid userId);
+    Task<(DatabaseInstance database, string newPassword)> RotateCredentialsAsync(Guid instanceId, Guid userId);
 }

@@ -34,6 +34,7 @@ public class PaymentRepository : Repository<Payment>, IPaymentRepository
     {
         return await _dbSet
             .Include(p => p.Subscription)
+                .ThenInclude(s => s!.Plan)
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();

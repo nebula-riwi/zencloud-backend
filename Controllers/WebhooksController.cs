@@ -45,10 +45,10 @@ public class WebhooksController : ControllerBase
     [SwaggerOperation(Summary = "Obtener webhooks del usuario", Description = "Retorna todos los webhooks configurados por el usuario autenticado")]
     [SwaggerResponse(200, "Lista de webhooks")]
     [SwaggerResponse(401, "No autenticado")]
-    public async Task<IActionResult> GetWebhooks()
+    public Task<IActionResult> GetWebhooks()
     {
         // Webhooks deshabilitados temporalmente
-        return Ok(new { data = new List<WebhookResponse>() });
+        return Task.FromResult<IActionResult>(Ok(new { data = new List<WebhookResponse>() }));
     }
 
     /// <summary>
@@ -62,10 +62,10 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(400, "Solicitud inválida")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(422, "Errores de validación")]
-    public async Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request)
+    public Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request)
     {
         // Webhooks deshabilitados temporalmente
-        return Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null });
+        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null }));
     }
 
     /// <summary>
@@ -80,10 +80,10 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(400, "Solicitud inválida")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(404, "Webhook no encontrado")]
-    public async Task<IActionResult> UpdateWebhook(Guid id, [FromBody] UpdateWebhookRequest request)
+    public Task<IActionResult> UpdateWebhook(Guid id, [FromBody] UpdateWebhookRequest request)
     {
         // Webhooks deshabilitados temporalmente
-        return Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null });
+        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null }));
     }
 
     /// <summary>
@@ -96,10 +96,10 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(200, "Webhook eliminado exitosamente")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(404, "Webhook no encontrado")]
-    public async Task<IActionResult> DeleteWebhook(Guid id)
+    public Task<IActionResult> DeleteWebhook(Guid id)
     {
         // Webhooks deshabilitados temporalmente
-        return Ok(new { message = "Webhooks temporalmente deshabilitados" });
+        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados" }));
     }
 
     /// <summary>
@@ -112,9 +112,9 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(200, "Prueba enviada exitosamente")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(404, "Webhook no encontrado")]
-    public async Task<IActionResult> TestWebhook(Guid id)
+    public Task<IActionResult> TestWebhook(Guid id)
     {
         // Webhooks deshabilitados temporalmente
-        return Ok(new { message = "Webhooks temporalmente deshabilitados" });
+        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados" }));
     }
 }

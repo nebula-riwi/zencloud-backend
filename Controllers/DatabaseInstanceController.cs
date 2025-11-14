@@ -153,4 +153,59 @@ public class DatabaseInstanceController : ControllerBase
         await _databaseInstanceService.DeleteDatabaseInstanceAsync(instanceId, userId);
         return Ok(new { message = "Base de datos eliminada exitosamente" });
     }
+
+    /// <summary>
+    /// Rota las credenciales de una base de datos (usuario y contraseña)
+    /// </summary>
+    /// <param name="instanceId">ID de la instancia de base de datos</param>
+    /// <returns>Información actualizada de la base de datos</returns>
+    /// <response code="200">Credenciales rotadas exitosamente</response>
+    /// <response code="400">Error al rotar las credenciales</response>
+    /// <response code="404">Base de datos no encontrada</response>
+    [HttpPost("{instanceId}/rotate-credentials")]
+    [SwaggerOperation(
+        Summary = "Rotar credenciales",
+        Description = "Genera nuevas credenciales (usuario y contraseña) para la base de datos y las actualiza automáticamente en la base de datos física. Las nuevas credenciales se envían por correo electrónico."
+    )]
+    [SwaggerResponse(200, "Credenciales rotadas exitosamente")]
+    [SwaggerResponse(400, "Error al rotar credenciales")]
+    [SwaggerResponse(404, "Base de datos no encontrada")]
+    public async Task<IActionResult> RotateCredentials(Guid instanceId)
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? 
+                             User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            var (database, newPassword) = await _databaseInstanceService.RotateCredentialsAsync(instanceId, userId);
+            
+            var response = new RotateCredentialsResponseDto
+            {
+                InstanceId = database.InstanceId,
+                DatabaseName = database.DatabaseName,
+                DatabaseUser = database.DatabaseUser,
+                DatabasePassword = newPassword, // Incluir la contraseña en la respuesta
+                AssignedPort = database.AssignedPort,
+                ConnectionString = database.ConnectionString,
+                Status = database.Status.ToString(),
+                EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
+                CreatedAt = database.CreatedAt,
+                ServerIpAddress = database.ServerIpAddress
+            };
+            
+            return Ok(new
+            {
+                message = "Credenciales rotadas exitosamente. Las nuevas credenciales se han enviado por correo electrónico.",
+                data = response
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

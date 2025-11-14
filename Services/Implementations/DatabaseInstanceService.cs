@@ -206,4 +206,68 @@ private static string GenerateRandomSuffix(int length)
         
         await _databaseRepository.UpdateAsync(instance);
     }
+
+    public async Task<(DatabaseInstance database, string newPassword)> RotateCredentialsAsync(Guid instanceId, Guid userId)
+    {
+        var instance = await _databaseRepository.GetByIdWithEngineAsync(instanceId);
+        
+        if (instance == null)
+        {
+            throw new NotFoundException("Base de datos no encontrada");
+        }
+
+        if (instance.UserId != userId)
+        {
+            throw new ForbiddenException("No tienes permisos para rotar las credenciales de esta base de datos");
+        }
+
+        if (instance.Status != DatabaseInstanceStatus.Active)
+        {
+            throw new BadRequestException("La base de datos se encuentra inactiva");
+        }
+        
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null || !user.IsActive)
+            throw new NotFoundException("Usuario no válido o inactivo");
+        
+        var engineName = instance.Engine?.EngineName.ToString() ?? throw new NotFoundException("Motor no encontrado");
+        var databaseName = instance.DatabaseName;
+        var oldUsername = instance.DatabaseUser;
+
+        // Generar nuevas credenciales
+        var newUsername = _credentialsGenerator.GenerateUsername(databaseName);
+        var newPassword = _credentialsGenerator.GeneratePassword();
+        var newPasswordEncrypted = _encryptionService.Encrypt(newPassword);
+
+        // Rotar credenciales en la base de datos física
+        await _databaseEngineService.RotateCredentialsAsync(
+            engineName,
+            databaseName,
+            oldUsername,
+            newUsername,
+            newPassword
+        );
+
+        // Actualizar en la base de datos de ZenCloud
+        instance.DatabaseUser = newUsername;
+        instance.DatabasePasswordHash = newPasswordEncrypted;
+        instance.ConnectionString = BuildConnectionString(instance.Engine!, databaseName, newUsername, newPassword);
+        instance.UpdatedAt = DateTime.UtcNow;
+
+        await _databaseRepository.UpdateAsync(instance);
+
+        // Enviar email con las nuevas credenciales
+        await _emailService.SendDatabaseCredentialsEmailAsync(
+            user.Email,
+            user.FullName,
+            engineName,
+            databaseName,
+            newUsername,
+            newPassword,
+            instance.ServerIpAddress,
+            instance.AssignedPort
+        );
+
+        return (instance, newPassword);
+    }
 }
