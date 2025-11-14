@@ -22,4 +22,5 @@ public class User
     public ICollection<EmailLog> EmailLogs { get; set; } = new List<EmailLog>();
     public ICollection<Payment> Payments { get; set; } = new List<Payment>();
     public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
+    public ICollection<DatabaseQueryHistory> QueryHistory { get; set; } = new List<DatabaseQueryHistory>();
 }

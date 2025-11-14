@@ -9,6 +9,8 @@ public class PlanValidationService : IPlanValidationService
 {
     private readonly IDatabaseInstanceRepository _databaseRepository;
     private readonly PgDbContext _context;
+    private const int FreePlanPerEngineLimit = 2;
+    private const int FreePlanGlobalActiveLimit = 5;
 
     public PlanValidationService(
         IDatabaseInstanceRepository databaseRepository, 
@@ -24,7 +26,24 @@ public class PlanValidationService : IPlanValidationService
 
         var currentCount = await _databaseRepository.CountByUserAndEngineAsync(userId, engineId);
         
-        return currentCount < maxDatabases;
+        if (currentCount >= maxDatabases)
+        {
+            return false;
+        }
+
+        var hasActiveSubscription = await _context.Subscriptions
+            .AnyAsync(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow);
+
+        if (!hasActiveSubscription)
+        {
+            var totalActive = await _databaseRepository.CountActiveByUserAsync(userId);
+            if (totalActive >= FreePlanGlobalActiveLimit)
+            {
+                return false;
+            }
+        }
+
+        return true;
         
     }
 
@@ -32,7 +51,7 @@ public class PlanValidationService : IPlanValidationService
     {
         var subscription = await _context.Subscriptions
             .Include(s => s.Plan)
-            .Where(s => s.UserId == userId && s.IsActive)
+            .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
             .OrderByDescending(s => s.StartDate)
             .FirstOrDefaultAsync();
 
@@ -41,6 +60,6 @@ public class PlanValidationService : IPlanValidationService
             return subscription.Plan.MaxDatabasesPerEngine;
         }
 
-        return 2;
+        return FreePlanPerEngineLimit;
     }
 }

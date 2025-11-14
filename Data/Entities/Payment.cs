@@ -10,6 +10,9 @@ public class Payment
     public string Currency { get; set; } = "COP";
     public PaymentStatusType PaymentStatus { get; set; } = PaymentStatusType.Pending;
     public string? PaymentMethod { get; set; }
+    public string? PaymentMethodId { get; set; }
+    public string? PayerId { get; set; }
+    public string? CardId { get; set; }
     public DateTime TransactionDate { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

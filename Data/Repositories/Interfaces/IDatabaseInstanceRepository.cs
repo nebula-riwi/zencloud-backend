@@ -5,6 +5,7 @@ public interface IDatabaseInstanceRepository : IRepository<DatabaseInstance>
 {
     Task<IEnumerable<DatabaseInstance>> GetByUserIdAsync(Guid userId);
     Task<int> CountByUserAndEngineAsync(Guid userId, Guid engineId);
+    Task<int> CountActiveByUserAsync(Guid userId);
     Task<bool> DatabaseNameExistsAsync(string databaseName);
     Task<DatabaseInstance?> GetByIdWithEngineAsync(Guid instanceId);
 }

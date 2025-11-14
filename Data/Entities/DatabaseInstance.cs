@@ -19,4 +19,5 @@ public class DatabaseInstance
     // Navigation properties
     public User? User { get; set; }
     public DatabaseEngine? Engine { get; set; }
+    public ICollection<DatabaseQueryHistory> QueryHistory { get; set; } = new List<DatabaseQueryHistory>();
 }

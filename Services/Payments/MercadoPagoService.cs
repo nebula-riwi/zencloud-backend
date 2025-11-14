@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +17,7 @@ namespace ZenCloud.Services
         private readonly IUserRepository _userRepository;
         private readonly ISubscriptionRepository _subscriptionRepository;
         private readonly IPlanRepository _planRepository;
+        private readonly ILogger<MercadoPagoService> _logger;
 
         public MercadoPagoService(
             IConfiguration configuration, 
@@ -23,7 +25,8 @@ namespace ZenCloud.Services
             IEmailService emailService,
             IUserRepository userRepository,
             ISubscriptionRepository subscriptionRepository,
-            IPlanRepository planRepository)
+            IPlanRepository planRepository,
+            ILogger<MercadoPagoService> logger)
         {
             _accessToken = configuration["MercadoPago:AccessToken"]!;
             _paymentRepository = paymentRepository;
@@ -31,6 +34,7 @@ namespace ZenCloud.Services
             _emailService = emailService;
             _subscriptionRepository = subscriptionRepository;
             _planRepository = planRepository;
+            _logger = logger;
 
             _httpClient = new HttpClient
             {
@@ -163,6 +167,18 @@ namespace ZenCloud.Services
             };
 
             string status = paymentData.TryGetProperty("status", out var s) ? s.GetString() ?? "pending" : "pending";
+            string? paymentMethodId = paymentData.TryGetProperty("payment_method_id", out var methodElement) ? methodElement.GetString() : null;
+            string? paymentTypeId = paymentData.TryGetProperty("payment_type_id", out var typeElement) ? typeElement.GetString() : null;
+            string? payerId = null;
+            if (paymentData.TryGetProperty("payer", out var payerElement) && payerElement.ValueKind == JsonValueKind.Object)
+            {
+                payerId = payerElement.TryGetProperty("id", out var payerIdElement) ? payerIdElement.GetString() : null;
+            }
+            string? cardId = null;
+            if (paymentData.TryGetProperty("card", out var cardElement) && cardElement.ValueKind == JsonValueKind.Object)
+            {
+                cardId = cardElement.TryGetProperty("id", out var cardIdElement) ? cardIdElement.GetString() : null;
+            }
 
             // Leer metadata para obtener plan_id y user_id
             Guid userId = Guid.Empty;
@@ -220,6 +236,23 @@ namespace ZenCloud.Services
                 Console.WriteLine("No se encontro el pago en la base de datos.");
                 Console.WriteLine($"Payment ID: {mpPaymentId}, Preference ID: {preferenceId}, User ID: {userId}, Plan ID: {planId}");
                 return;
+            }
+            
+            if (!string.IsNullOrEmpty(paymentTypeId))
+            {
+                payment.PaymentMethod = paymentTypeId;
+            }
+            if (!string.IsNullOrEmpty(paymentMethodId))
+            {
+                payment.PaymentMethodId = paymentMethodId;
+            }
+            if (!string.IsNullOrEmpty(payerId))
+            {
+                payment.PayerId = payerId;
+            }
+            if (!string.IsNullOrEmpty(cardId))
+            {
+                payment.CardId = cardId;
             }
 
             // Actualizar estado del pago
@@ -335,7 +368,88 @@ namespace ZenCloud.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Error enviando email de cambio de plan: {ex.Message}");
+        }
+    }
+
+    public async Task<bool> TryAutoRenewSubscriptionAsync(Subscription subscription)
+    {
+        if (subscription.Plan == null)
+        {
+            throw new InvalidOperationException("El plan asociado a la suscripción no está disponible.");
+        }
+
+        var lastPayment = await _paymentRepository.GetLastApprovedBySubscriptionAsync(subscription.SubscriptionId);
+        if (lastPayment == null || string.IsNullOrEmpty(lastPayment.PayerId) || string.IsNullOrEmpty(lastPayment.CardId))
+        {
+            _logger.LogWarning("No hay información suficiente para autorrenovar la suscripción {SubscriptionId}", subscription.SubscriptionId);
+            return false;
+        }
+
+        var paymentMethodId = lastPayment.PaymentMethodId ?? lastPayment.PaymentMethod ?? "credit_card";
+
+        var body = new
+        {
+            transaction_amount = subscription.Plan.PriceInCOP,
+            description = $"Renovación automática plan {subscription.Plan.PlanName}",
+            payment_method_id = paymentMethodId,
+            installments = 1,
+            binary_mode = true,
+            payer = new
+            {
+                id = lastPayment.PayerId,
+                type = "customer"
+            },
+            metadata = new
+            {
+                user_id = subscription.UserId.ToString(),
+                plan_id = subscription.PlanId,
+                auto_renew = true
+            },
+            card_id = lastPayment.CardId
+        };
+
+        var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync("v1/payments", content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Auto-renovación fallida para suscripción {SubscriptionId}: {Status} - {Body}", subscription.SubscriptionId, response.StatusCode, responseBody);
+            return false;
+        }
+
+        var json = JsonDocument.Parse(responseBody).RootElement;
+        var status = json.TryGetProperty("status", out var statusElement) ? statusElement.GetString() ?? "pending" : "pending";
+        var mpPaymentId = json.TryGetProperty("id", out var idElement) ? idElement.GetInt64().ToString() : Guid.NewGuid().ToString();
+
+        var autoPayment = new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            UserId = subscription.UserId,
+            SubscriptionId = subscription.SubscriptionId,
+            Amount = subscription.Plan.PriceInCOP,
+            Currency = "COP",
+            PaymentStatus = status == "approved" ? PaymentStatusType.Approved : PaymentStatusType.Rejected,
+            PaymentMethod = $"auto_{paymentMethodId}",
+            PaymentMethodId = paymentMethodId,
+            PayerId = lastPayment.PayerId,
+            CardId = lastPayment.CardId,
+            TransactionDate = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            MercadoPagoPaymentId = mpPaymentId
+        };
+
+        await _paymentRepository.AddAsync(autoPayment);
+
+        if (status == "approved")
+        {
+            await ProcessApprovedPaymentAsync(autoPayment, subscription.PlanId, subscription.UserId);
+            _logger.LogInformation("Auto-renovación exitosa para suscripción {SubscriptionId}", subscription.SubscriptionId);
+            return true;
             }
+
+        _logger.LogWarning("Auto-renovación para suscripción {SubscriptionId} no fue aprobada (estado {Status})", subscription.SubscriptionId, status);
+        return false;
         }
     }
 }

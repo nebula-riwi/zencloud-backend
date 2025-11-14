@@ -49,6 +49,22 @@ public class PaymentRepository : Repository<Payment>, IPaymentRepository
             .ToListAsync();
     }
 
+    public async Task<Payment?> GetLastApprovedBySubscriptionAsync(Guid subscriptionId)
+    {
+        return await _dbSet
+            .Where(p => p.SubscriptionId == subscriptionId && p.PaymentStatus == PaymentStatusType.Approved)
+            .OrderByDescending(p => p.TransactionDate)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<Payment?> GetLastApprovedByUserAsync(Guid userId)
+    {
+        return await _dbSet
+            .Where(p => p.UserId == userId && p.PaymentStatus == PaymentStatusType.Approved)
+            .OrderByDescending(p => p.TransactionDate)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task AddAsync(Payment payment)
     {
         await _context.Payments.AddAsync(payment);
