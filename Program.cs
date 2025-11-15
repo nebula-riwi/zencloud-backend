@@ -18,6 +18,7 @@ using ZenCloud.Middleware;
 using AspNetCoreRateLimit;
 using System.Reflection;
 using ZenCloud.Data.Seed;
+using System.Data.Common;
 
 // Cargar variables de entorno desde .env si existe
 try
@@ -353,9 +354,33 @@ static string ResolveConnectionString(ConfigurationManager configuration)
 
     if (string.IsNullOrWhiteSpace(raw))
     {
+        raw = BuildConnectionStringFromPostgresEnv();
+    }
+
+    if (string.IsNullOrWhiteSpace(raw))
+    {
         throw new InvalidOperationException("Debe configurar la variable de entorno CONNECTION_STRING o ConnectionStrings:DefaultConnection.");
     }
 
+    raw = NormalizeConnectionString(raw);
+
+    var forceInternalHost = Environment.GetEnvironmentVariable("FORCE_INTERNAL_CONNECTION");
+    if (!string.Equals(forceInternalHost, "false", StringComparison.OrdinalIgnoreCase))
+    {
+        var internalHost = Environment.GetEnvironmentVariable("POSTGRES_HOST");
+        var internalPort = Environment.GetEnvironmentVariable("POSTGRES_INTERNAL_PORT")
+                           ?? Environment.GetEnvironmentVariable("POSTGRES_PORT");
+
+        raw = TryOverrideConnectionSegment(raw, "Host", internalHost);
+        raw = TryOverrideConnectionSegment(raw, "Server", internalHost);
+        raw = TryOverrideConnectionSegment(raw, "Port", internalPort);
+    }
+
+    return raw;
+}
+
+static string NormalizeConnectionString(string raw)
+{
     raw = raw.Trim();
     raw = raw.Replace("\r", string.Empty)
              .Replace("\n", string.Empty);
@@ -366,4 +391,48 @@ static string ResolveConnectionString(ConfigurationManager configuration)
     }
 
     return raw;
+}
+
+static string BuildConnectionStringFromPostgresEnv()
+{
+    var host = Environment.GetEnvironmentVariable("POSTGRES_HOST");
+    var port = Environment.GetEnvironmentVariable("POSTGRES_INTERNAL_PORT")
+               ?? Environment.GetEnvironmentVariable("POSTGRES_PORT");
+    var database = Environment.GetEnvironmentVariable("POSTGRES_APP_DATABASE")
+                   ?? Environment.GetEnvironmentVariable("POSTGRES_DEFAULT_DATABASE");
+    var username = Environment.GetEnvironmentVariable("POSTGRES_APP_USER")
+                   ?? Environment.GetEnvironmentVariable("POSTGRES_ADMIN_USER");
+    var password = Environment.GetEnvironmentVariable("POSTGRES_APP_PASSWORD")
+                   ?? Environment.GetEnvironmentVariable("POSTGRES_ADMIN_PASSWORD");
+
+    if (string.IsNullOrWhiteSpace(host) ||
+        string.IsNullOrWhiteSpace(port) ||
+        string.IsNullOrWhiteSpace(database) ||
+        string.IsNullOrWhiteSpace(username) ||
+        string.IsNullOrWhiteSpace(password))
+    {
+        return string.Empty;
+    }
+
+    return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Disable;";
+}
+
+static string TryOverrideConnectionSegment(string connectionString, string key, string? value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return connectionString;
+    }
+
+    var builder = new DbConnectionStringBuilder
+    {
+        ConnectionString = connectionString
+    };
+
+    if (builder.ContainsKey(key))
+    {
+        builder[key] = value;
+    }
+
+    return builder.ConnectionString;
 }

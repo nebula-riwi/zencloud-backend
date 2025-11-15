@@ -25,6 +25,8 @@ services:
       ConnectionStrings__Postgres: "Host=${POSTGRES_HOST};Port=${POSTGRES_PORT};Database=${POSTGRES_DEFAULT_DATABASE};Username=${POSTGRES_ADMIN_USER};Password=${POSTGRES_ADMIN_PASSWORD};"
       ConnectionStrings__Mongo: "mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DEFAULT_DATABASE}"
       ConnectionStrings__Redis: "${REDIS_HOST}:${REDIS_PORT},password=${REDIS_ADMIN_PASSWORD}"
+      FORCE_INTERNAL_CONNECTION: "true"
+      POSTGRES_INTERNAL_PORT: "5432"
 
     depends_on:
       - mysql-ZenDb
