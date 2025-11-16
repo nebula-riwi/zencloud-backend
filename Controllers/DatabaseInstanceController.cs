@@ -6,6 +6,7 @@ using ZenCloud.Services.Interfaces;
 using ZenCloud.Exceptions;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace ZenCloud.Controllers;
 
@@ -20,10 +21,12 @@ namespace ZenCloud.Controllers;
 public class DatabaseInstanceController : ControllerBase
 {
     private readonly IDatabaseInstanceService _databaseInstanceService;
+    private readonly ILogger<DatabaseInstanceController> _logger;
 
-    public DatabaseInstanceController(IDatabaseInstanceService databaseInstanceService)
+    public DatabaseInstanceController(IDatabaseInstanceService databaseInstanceService, ILogger<DatabaseInstanceController> logger)
     {
         _databaseInstanceService = databaseInstanceService;
+        _logger = logger;
     }
 
     [HttpGet("user/{userId}")]
