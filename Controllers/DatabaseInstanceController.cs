@@ -132,7 +132,7 @@ public class DatabaseInstanceController : ControllerBase
     {
         // Log del request recibido (incluso si falla la validación)
         _logger.LogInformation("Request recibido para crear BD: UserId={UserId}, EngineId={EngineId}, DatabaseName={DatabaseName}", 
-            request?.UserId, request?.EngineId, request?.DatabaseName);
+            request.UserId, request.EngineId, request.DatabaseName);
         
         // Log del estado del ModelState
         if (!ModelState.IsValid)

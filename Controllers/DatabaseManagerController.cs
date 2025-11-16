@@ -175,7 +175,7 @@ namespace ZenCloud.Controllers
                 // Use streaming for large database exports
                 var fileName = $"{instanceId}_{DateTime.UtcNow:yyyyMMddHHmmss}.sql";
                 Response.ContentType = "application/sql";
-                Response.Headers.Add("Content-Disposition", $"attachment; filename=\"{fileName}\"");
+                Response.Headers.Append("Content-Disposition", $"attachment; filename=\"{fileName}\"");
                 
                 await _dbService.ExportDatabaseToStreamAsync(instanceId, userId, Response.Body);
             }

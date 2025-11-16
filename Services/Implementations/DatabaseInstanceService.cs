@@ -74,7 +74,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
             throw new BadRequestException("Motor de base de datos no válido o inactivo");
 
         // Usar transacción para prevenir condiciones de carrera (Serializable isolation level)
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, CancellationToken.None);
         try
         {
             // Validar límites DENTRO de la transacción para garantizar atomicidad

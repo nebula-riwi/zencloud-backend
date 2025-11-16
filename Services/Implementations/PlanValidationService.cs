@@ -130,7 +130,7 @@ public class PlanValidationService : IPlanValidationService
         }
         
         // Si es plan gratuito, también verificar límite global
-        if (subscription == null)
+        if (subscriptionData == null)
         {
             var remainingActive = activeDatabases.Except(databasesToDeactivate).ToList();
             if (remainingActive.Count > maxGlobal)
