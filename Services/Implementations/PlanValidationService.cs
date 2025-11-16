@@ -50,62 +50,63 @@ public class PlanValidationService : IPlanValidationService
     
     public async Task<(bool CanCreate, string? ErrorMessage, int CurrentCount, int MaxCount)> CanCreateDatabaseWithDetailsAsync(Guid userId, Guid engineId)
     {
-        var maxDatabases = await GetMaxDatabasesPerEngineAsync(userId);
+        // Optimización: usar proyección en lugar de Include() para solo obtener los campos necesarios
+        var subscriptionData = await _context.Subscriptions
+            .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
+            .OrderByDescending(s => s.StartDate)
+            .Select(s => new { s.PlanId, PlanName = s.Plan.PlanName, MaxDatabasesPerEngine = s.Plan.MaxDatabasesPerEngine })
+            .FirstOrDefaultAsync();
+        
+        bool hasActiveSubscription = subscriptionData != null;
+        
+        // Obtener límites según el plan
+        int maxPerEngine = subscriptionData?.MaxDatabasesPerEngine ?? FreePlanPerEngineLimit;
+        
+        // Verificar límite por motor
         var currentCount = await _databaseRepository.CountByUserAndEngineAsync(userId, engineId);
         
-        if (currentCount >= maxDatabases)
+        if (currentCount >= maxPerEngine)
         {
-            var subscription = await _context.Subscriptions
-                .Include(s => s.Plan)
-                .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
-                .OrderByDescending(s => s.StartDate)
-                .FirstOrDefaultAsync();
-            
-            var planName = subscription?.Plan.PlanName.ToString() ?? "Gratuito";
-            return (false, $"Has alcanzado el límite de {maxDatabases} bases de datos por motor para tu plan {planName}. Tienes {currentCount}/{maxDatabases} bases activas en este motor.", currentCount, maxDatabases);
+            var planName = subscriptionData?.PlanName.ToString() ?? "Gratuito";
+            return (false, $"Has alcanzado el límite de {maxPerEngine} bases de datos por motor para tu plan {planName}. Tienes {currentCount}/{maxPerEngine} bases activas en este motor.", currentCount, maxPerEngine);
         }
 
-        var hasActiveSubscription = await _context.Subscriptions
-            .AnyAsync(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow);
-
+        // Si NO tiene suscripción activa, también verificar límite global de plan gratuito
         if (!hasActiveSubscription)
         {
             var totalActive = await _databaseRepository.CountActiveByUserAsync(userId);
             if (totalActive >= FreePlanGlobalActiveLimit)
             {
-                return (false, $"Has alcanzado el límite global de {FreePlanGlobalActiveLimit} bases de datos activas para el plan gratuito.", totalActive, FreePlanGlobalActiveLimit);
+                return (false, $"Has alcanzado el límite global de {FreePlanGlobalActiveLimit} bases de datos activas para el plan gratuito. Solo puedes tener {FreePlanGlobalActiveLimit} bases activas simultáneamente.", totalActive, FreePlanGlobalActiveLimit);
             }
         }
 
-        return (true, null, currentCount, maxDatabases);
+        return (true, null, currentCount, maxPerEngine);
     }
 
     public async Task<int> GetMaxDatabasesPerEngineAsync(Guid userId)
     {
-        var subscription = await _context.Subscriptions
-            .Include(s => s.Plan)
+        // Optimización: usar proyección en lugar de Include()
+        var maxDatabases = await _context.Subscriptions
             .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
             .OrderByDescending(s => s.StartDate)
+            .Select(s => s.Plan.MaxDatabasesPerEngine)
             .FirstOrDefaultAsync();
 
-        if (subscription != null)
-        {
-            return subscription.Plan.MaxDatabasesPerEngine;
-        }
-
-        return FreePlanPerEngineLimit;
+        return maxDatabases > 0 ? maxDatabases : FreePlanPerEngineLimit;
     }
     
     public async Task EnforcePlanLimitsAsync(Guid userId)
     {
-        var subscription = await _context.Subscriptions
-            .Include(s => s.Plan)
+        // Optimización: usar proyección en lugar de Include()
+        var subscriptionData = await _context.Subscriptions
             .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
             .OrderByDescending(s => s.StartDate)
+            .Select(s => new { MaxDatabasesPerEngine = s.Plan.MaxDatabasesPerEngine })
             .FirstOrDefaultAsync();
         
-        int maxPerEngine = subscription?.Plan.MaxDatabasesPerEngine ?? FreePlanPerEngineLimit;
-        int maxGlobal = subscription != null ? int.MaxValue : FreePlanGlobalActiveLimit;
+        int maxPerEngine = subscriptionData?.MaxDatabasesPerEngine ?? FreePlanPerEngineLimit;
+        int maxGlobal = subscriptionData != null ? int.MaxValue : FreePlanGlobalActiveLimit;
         
         var allDatabases = await _databaseRepository.GetByUserIdAsync(userId);
         var activeDatabases = allDatabases.Where(db => db.Status == DatabaseInstanceStatus.Active).ToList();

@@ -15,5 +15,6 @@ namespace ZenCloud.Services.Interfaces
         Task<bool> KillProcessAsync(Guid instanceId, Guid userId, int processId);
         Task<IReadOnlyList<QueryHistoryItemDto>> GetQueryHistoryAsync(Guid instanceId, Guid userId, int limit = 20);
         Task<DatabaseExportResult> ExportDatabaseAsync(Guid instanceId, Guid userId);
+        Task ExportDatabaseToStreamAsync(Guid instanceId, Guid userId, Stream outputStream);
     }
 }

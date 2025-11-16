@@ -130,6 +130,27 @@ public class DatabaseInstanceController : ControllerBase
     [SwaggerResponse(422, "Errores de validación")]
     public async Task<IActionResult> CreateDatabase([FromBody] CreateDatabaseRequestDto request)
     {
+        // Log del request recibido (incluso si falla la validación)
+        _logger.LogInformation("Request recibido para crear BD: UserId={UserId}, EngineId={EngineId}, DatabaseName={DatabaseName}", 
+            request?.UserId, request?.EngineId, request?.DatabaseName);
+        
+        // Log del estado del ModelState
+        if (!ModelState.IsValid)
+        {
+            _logger.LogWarning("ModelState inválido. Total errores: {ErrorCount}", ModelState.ErrorCount);
+            foreach (var key in ModelState.Keys)
+            {
+                var errors = ModelState[key]?.Errors;
+                if (errors != null && errors.Count > 0)
+                {
+                    foreach (var error in errors)
+                    {
+                        _logger.LogWarning("Error en campo {Field}: {ErrorMessage}", key, error.ErrorMessage);
+                    }
+                }
+            }
+        }
+        
         if (!ModelState.IsValid)
         {
             var errors = ModelState

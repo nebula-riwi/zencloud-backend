@@ -6,6 +6,7 @@ using System.Data;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using ZenCloud.Data.DbContext;
@@ -554,18 +555,49 @@ namespace ZenCloud.Services.Implementations
                 throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL y PostgreSQL.");
             }
 
-            string dumpContent = instance.Engine.EngineName switch
-            {
-                DatabaseEngineType.MySQL => await ExportMySqlAsync(instance),
-                DatabaseEngineType.PostgreSQL => await ExportPostgreSqlAsync(instance),
-                _ => throw new ForbiddenException("Motor no soportado para exportación")
-            };
-
+            // Use MemoryStream for backward compatibility
+            using var memoryStream = new MemoryStream();
+            await ExportDatabaseToStreamAsync(instanceId, userId, memoryStream);
+            
             return new DatabaseExportResult
             {
-                Content = Encoding.UTF8.GetBytes(dumpContent),
+                Content = memoryStream.ToArray(),
                 FileName = $"{instance.DatabaseName}_{DateTime.UtcNow:yyyyMMddHHmmss}.sql"
             };
+        }
+
+        public async Task ExportDatabaseToStreamAsync(Guid instanceId, Guid userId, Stream outputStream)
+        {
+            await ValidateUserAccessAsync(instanceId, userId);
+            var instance = await GetDatabaseInstanceAsync(instanceId);
+
+            if (instance.Engine == null)
+            {
+                throw new NotFoundException("Motor de base de datos no encontrado");
+            }
+
+            // Solo permitir exportación de MySQL y PostgreSQL
+            if (instance.Engine.EngineName != DatabaseEngineType.MySQL && 
+                instance.Engine.EngineName != DatabaseEngineType.PostgreSQL)
+            {
+                throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL y PostgreSQL.");
+            }
+
+            using var writer = new StreamWriter(outputStream, Encoding.UTF8, leaveOpen: true);
+
+            switch (instance.Engine.EngineName)
+            {
+                case DatabaseEngineType.MySQL:
+                    await ExportMySqlToStreamAsync(instance, writer);
+                    break;
+                case DatabaseEngineType.PostgreSQL:
+                    await ExportPostgreSqlToStreamAsync(instance, writer);
+                    break;
+                default:
+                    throw new ForbiddenException("Motor no soportado para exportación");
+            }
+
+            await writer.FlushAsync();
         }
 
         private async Task<string> ExportMySqlAsync(DatabaseInstance instance)
@@ -578,6 +610,18 @@ namespace ZenCloud.Services.Implementations
         {
             await using var connection = await CreatePostgresConnectionAsync(instance);
             return await BuildPostgresDumpAsync(connection, instance.DatabaseName);
+        }
+
+        private async Task ExportMySqlToStreamAsync(DatabaseInstance instance, StreamWriter writer)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
+            await BuildMySqlDumpToStreamAsync(connection, instance.DatabaseName, writer);
+        }
+
+        private async Task ExportPostgreSqlToStreamAsync(DatabaseInstance instance, StreamWriter writer)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+            await BuildPostgresDumpToStreamAsync(connection, instance.DatabaseName, writer);
         }
 
         #region Métodos de Seguridad
@@ -929,6 +973,131 @@ namespace ZenCloud.Services.Implementations
             }
         }
 
+        private async Task BuildMySqlDumpToStreamAsync(MySqlConnection connection, string databaseName, StreamWriter writer)
+        {
+            await writer.WriteLineAsync("-- ZenCloud SQL Export");
+            await writer.WriteLineAsync($"-- Database: `{databaseName}`");
+            await writer.WriteLineAsync($"-- Generated at: {DateTime.UtcNow:O}");
+            await writer.WriteLineAsync("SET FOREIGN_KEY_CHECKS=0;");
+
+            var tables = new List<string>();
+            using (var showTablesCommand = new MySqlCommand("SHOW TABLES;", connection))
+            using (var reader = await showTablesCommand.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    tables.Add(reader.GetString(0));
+                }
+            }
+
+            foreach (var table in tables)
+            {
+                await writer.WriteLineAsync();
+                await writer.WriteLineAsync("-- ----------------------------");
+                await writer.WriteLineAsync($"-- Table structure for `{table}`");
+                await writer.WriteLineAsync($"DROP TABLE IF EXISTS `{table}`;");
+
+                using (var createCommand = new MySqlCommand($"SHOW CREATE TABLE `{table}`;", connection))
+                using (var createReader = await createCommand.ExecuteReaderAsync())
+                {
+                    if (await createReader.ReadAsync())
+                    {
+                        var createStatement = createReader.GetString(1);
+                        await writer.WriteLineAsync($"{createStatement};");
+                    }
+                }
+
+                await writer.WriteLineAsync();
+                await writer.WriteLineAsync($"-- Data for table `{table}`");
+
+                using (var dataCommand = new MySqlCommand($"SELECT * FROM `{table}`;", connection))
+                using (var dataReader = await dataCommand.ExecuteReaderAsync())
+                {
+                    while (await dataReader.ReadAsync())
+                    {
+                        var values = new string[dataReader.FieldCount];
+                        for (int i = 0; i < dataReader.FieldCount; i++)
+                        {
+                            values[i] = FormatSqlValue(dataReader.IsDBNull(i) ? null : dataReader.GetValue(i));
+                        }
+
+                        await writer.WriteLineAsync($"INSERT INTO `{table}` VALUES ({string.Join(", ", values)});");
+                    }
+                }
+            }
+
+            await writer.WriteLineAsync("SET FOREIGN_KEY_CHECKS=1;");
+        }
+
+        private async Task BuildPostgresDumpToStreamAsync(NpgsqlConnection connection, string databaseName, StreamWriter writer)
+        {
+            await writer.WriteLineAsync("-- ZenCloud SQL Export (PostgreSQL)");
+            await writer.WriteLineAsync($"-- Database: \"{databaseName}\"");
+            await writer.WriteLineAsync($"-- Generated at: {DateTime.UtcNow:O}");
+            await writer.WriteLineAsync("SET statement_timeout = 0;");
+            await writer.WriteLineAsync("SET lock_timeout = 0;");
+            await writer.WriteLineAsync("SET client_encoding = 'UTF8';");
+            await writer.WriteLineAsync("SET standard_conforming_strings = on;");
+            await writer.WriteLineAsync();
+
+            var tables = new List<string>();
+            const string tableSql = @"
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                ORDER BY table_name;";
+
+            await using var tableCommand = new NpgsqlCommand(tableSql, connection);
+            await using var tableReader = await tableCommand.ExecuteReaderAsync();
+            while (await tableReader.ReadAsync())
+            {
+                tables.Add(tableReader.GetString(0));
+            }
+
+            foreach (var table in tables)
+            {
+                await writer.WriteLineAsync();
+                await writer.WriteLineAsync($"-- Table: \"{table}\"");
+                await writer.WriteLineAsync($"DROP TABLE IF EXISTS \"{table}\" CASCADE;");
+
+                var columnDefinitions = await GetPostgresColumnDefinitionsAsync(connection, table);
+                await writer.WriteLineAsync($"CREATE TABLE \"{table}\" (");
+                var columnDefs = string.Join(",\n", columnDefinitions.Select(column => $"    {column}"));
+                await writer.WriteLineAsync(columnDefs);
+                await writer.WriteLineAsync(");");
+
+                var primaryKeys = await GetPostgresPrimaryKeyColumnsAsync(connection, table);
+                if (primaryKeys.Count > 0)
+                {
+                    var pkColumns = string.Join(", ", primaryKeys.Select(pk => $"\"{pk}\""));
+                    await writer.WriteLineAsync($"ALTER TABLE ONLY \"{table}\" ADD CONSTRAINT \"{table}_pkey\" PRIMARY KEY ({pkColumns});");
+                }
+
+                await AppendPostgresTableDataToStreamAsync(connection, table, writer);
+            }
+        }
+
+        private async Task AppendPostgresTableDataToStreamAsync(NpgsqlConnection connection, string table, StreamWriter writer)
+        {
+            await writer.WriteLineAsync();
+            await writer.WriteLineAsync($"-- Data for table \"{table}\"");
+
+            var selectSql = $"SELECT * FROM \"{table}\";";
+            await using var command = new NpgsqlCommand(selectSql, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                var values = new string[reader.FieldCount];
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    values[i] = FormatSqlValue(reader.IsDBNull(i) ? null : reader.GetValue(i), usePostgresSyntax: true);
+                }
+
+                await writer.WriteLineAsync($"INSERT INTO \"{table}\" VALUES ({string.Join(", ", values)});");
+            }
+        }
+
         private string FormatSqlValue(object? value, bool usePostgresSyntax = false)
         {
             if (value == null || value == DBNull.Value)
@@ -998,8 +1167,12 @@ namespace ZenCloud.Services.Implementations
 
         private async Task<DatabaseInstance> GetDatabaseInstanceAsync(Guid instanceId)
         {
+            // Optimización: usar proyección para solo cargar campos necesarios cuando solo necesitamos el Engine
+            // Sin embargo, como necesitamos devolver la instancia completa, mantenemos Include
+            // pero podríamos optimizar si solo necesitamos el EngineName
             var instance = await _context.DatabaseInstances
                 .Include(di => di.Engine)
+                .AsNoTracking() // Optimización: solo lectura para este método
                 .FirstOrDefaultAsync(di => di.InstanceId == instanceId);
 
             if (instance == null)

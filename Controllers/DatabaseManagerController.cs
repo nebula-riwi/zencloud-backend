@@ -166,26 +166,39 @@ namespace ZenCloud.Controllers
         }
 
         [HttpGet("export")]
-        public async Task<IActionResult> ExportDatabase(Guid instanceId)
+        public async Task ExportDatabase(Guid instanceId)
         {
             try
             {
                 var userId = GetCurrentUserId();
-                var exportResult = await _dbService.ExportDatabaseAsync(instanceId, userId);
-                return File(exportResult.Content, exportResult.ContentType, exportResult.FileName);
+                
+                // Use streaming for large database exports
+                var fileName = $"{instanceId}_{DateTime.UtcNow:yyyyMMddHHmmss}.sql";
+                Response.ContentType = "application/sql";
+                Response.Headers.Add("Content-Disposition", $"attachment; filename=\"{fileName}\"");
+                
+                await _dbService.ExportDatabaseToStreamAsync(instanceId, userId, Response.Body);
             }
             catch (UnauthorizedAccessException)
             {
-                return Unauthorized(new { error = "No tienes acceso a esta base de datos" });
+                Response.StatusCode = 401;
+                await Response.WriteAsync("{\"error\":\"No tienes acceso a esta base de datos\"}");
+                return;
             }
             catch (ForbiddenException ex)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+                Response.StatusCode = 403;
+                Response.ContentType = "application/json";
+                await Response.WriteAsync($"{{\"error\":\"{ex.Message}\"}}");
+                return;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error exporting database {InstanceId}", instanceId);
-                return StatusCode(500, new { error = "No se pudo exportar la base de datos" });
+                Response.StatusCode = 500;
+                Response.ContentType = "application/json";
+                await Response.WriteAsync("{\"error\":\"No se pudo exportar la base de datos\"}");
+                return;
             }
         }
 
