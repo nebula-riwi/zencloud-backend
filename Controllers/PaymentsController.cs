@@ -285,8 +285,8 @@ public class PaymentsController : ControllerBase
         {
             var userId = GetUserIdFromClaims();
             
-            // Obtener pagos pendientes del usuario creados hace más de 30 minutos
-            var expiredThreshold = DateTime.UtcNow.AddMinutes(-30);
+            // Obtener pagos pendientes del usuario creados hace más de 10 minutos
+            var expiredThreshold = DateTime.UtcNow.AddMinutes(-10);
             var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
             var userPendingPayments = pendingPayments
                 .Where(p => p.UserId == userId && p.CreatedAt < expiredThreshold)
