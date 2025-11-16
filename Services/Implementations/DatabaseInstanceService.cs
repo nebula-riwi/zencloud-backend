@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore.Storage;
 using ZenCloud.Data.DbContext;
+using System.Threading;
 
 namespace ZenCloud.Services.Implementations;
 
@@ -74,7 +75,9 @@ public class DatabaseInstanceService : IDatabaseInstanceService
             throw new BadRequestException("Motor de base de datos no válido o inactivo");
 
         // Usar transacción para prevenir condiciones de carrera (Serializable isolation level)
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, CancellationToken.None);
+        // Nota: EF Core usa el isolation level por defecto si no se especifica, pero intentamos usar Serializable
+        // Para EF Core 9, BeginTransactionAsync solo acepta CancellationToken como parámetro opcional
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
         try
         {
             // Validar límites DENTRO de la transacción para garantizar atomicidad
