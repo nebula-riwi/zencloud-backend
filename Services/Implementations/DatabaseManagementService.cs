@@ -204,10 +204,19 @@ namespace ZenCloud.Services.Implementations
                 var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
                 decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
 
+                // Si el backend está en Docker, usar el nombre del contenedor y puerto interno
+                // Si no, usar la IP externa y puerto externo
+                var host = instance.ServerIpAddress == "168.119.182.243" || instance.ServerIpAddress == "localhost" || instance.ServerIpAddress == "127.0.0.1"
+                    ? "mysql-ZenDb" // Usar nombre del contenedor dentro de Docker
+                    : instance.ServerIpAddress;
+                var port = instance.ServerIpAddress == "168.119.182.243" || instance.ServerIpAddress == "localhost" || instance.ServerIpAddress == "127.0.0.1"
+                    ? 3306u // Puerto interno de MySQL en Docker
+                    : (uint)instance.AssignedPort;
+
                 var builder = new MySqlConnector.MySqlConnectionStringBuilder
                 {
-                    Server = instance.ServerIpAddress,
-                    Port = (uint)instance.AssignedPort,
+                    Server = host,
+                    Port = port,
                     Database = instance.DatabaseName,
                     UserID = instance.DatabaseUser,
                     Password = decryptedPassword,
@@ -216,7 +225,7 @@ namespace ZenCloud.Services.Implementations
                 };
 
                 _logger.LogInformation("MySQL connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
-                    instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length);
+                    instance.InstanceId, instance.DatabaseUser, host, port, decryptedPassword.Length);
 
                 await using var connection = new MySqlConnector.MySqlConnection(builder.ConnectionString);
                 
@@ -267,10 +276,19 @@ namespace ZenCloud.Services.Implementations
                 var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
                 decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
 
+                // Si el backend está en Docker, usar el nombre del contenedor y puerto interno
+                // Si no, usar la IP externa y puerto externo
+                var host = instance.ServerIpAddress == "168.119.182.243" || instance.ServerIpAddress == "localhost" || instance.ServerIpAddress == "127.0.0.1"
+                    ? "postgres-ZenDb" // Usar nombre del contenedor dentro de Docker
+                    : instance.ServerIpAddress;
+                var port = instance.ServerIpAddress == "168.119.182.243" || instance.ServerIpAddress == "localhost" || instance.ServerIpAddress == "127.0.0.1"
+                    ? 5432 // Puerto interno de PostgreSQL en Docker
+                    : instance.AssignedPort;
+
                 var pgBuilder = new Npgsql.NpgsqlConnectionStringBuilder
                 {
-                    Host = instance.ServerIpAddress,
-                    Port = instance.AssignedPort,
+                    Host = host,
+                    Port = port,
                     Database = instance.DatabaseName,
                     Username = instance.DatabaseUser,
                     Password = decryptedPassword,
@@ -278,7 +296,7 @@ namespace ZenCloud.Services.Implementations
                 };
 
                 _logger.LogInformation("Postgres connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
-                    instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length);
+                    instance.InstanceId, instance.DatabaseUser, host, port, decryptedPassword.Length);
 
                 await using var connection = new Npgsql.NpgsqlConnection(pgBuilder.ConnectionString);
                 await connection.OpenAsync();
