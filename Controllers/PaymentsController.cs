@@ -243,7 +243,7 @@ public class PaymentsController : ControllerBase
                 .Select(g => new
                 {
                     EngineId = g.Key,
-                    EngineName = g.First().Engine.EngineName.ToString(),
+                    EngineName = g.First().Engine!.EngineName.ToString(),
                     Count = g.Count()
                 })
                 .ToListAsync();
