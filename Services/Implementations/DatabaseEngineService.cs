@@ -169,8 +169,9 @@ public class DatabaseEngineService : IDatabaseEngineService
 
     private async Task CreatePostgreSqlDatabaseAsync(string databaseName, string username, string password)
     {
-        var host = _configuration["POSTGRES_HOST"] ?? throw new InvalidOperationException("POSTGRES_HOST no configurado");
-        var port = _configuration["POSTGRES_PORT"] ?? throw new InvalidOperationException("POSTGRES_PORT no configurado");
+        // Usar POSTGRES_USER_HOST para crear bases de usuarios, si no existe usar POSTGRES_HOST
+        var host = _configuration["POSTGRES_USER_HOST"] ?? _configuration["POSTGRES_HOST"] ?? throw new InvalidOperationException("POSTGRES_USER_HOST o POSTGRES_HOST no configurado");
+        var port = _configuration["POSTGRES_USER_PORT"] ?? _configuration["POSTGRES_PORT"] ?? throw new InvalidOperationException("POSTGRES_USER_PORT o POSTGRES_PORT no configurado");
         var adminUser = _configuration["POSTGRES_ADMIN_USER"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_USER no configurado");
         var adminPassword = _configuration["POSTGRES_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_PASSWORD no configurado");
         
@@ -240,8 +241,9 @@ public class DatabaseEngineService : IDatabaseEngineService
     
     private async Task DeletePostgreSqlDatabaseAsync(string databaseName, string username)
     {
-        var host = _configuration["POSTGRES_HOST"];
-        var port = _configuration["POSTGRES_PORT"];
+        // Usar POSTGRES_USER_HOST para eliminar bases de usuarios
+        var host = _configuration["POSTGRES_USER_HOST"] ?? _configuration["POSTGRES_HOST"];
+        var port = _configuration["POSTGRES_USER_PORT"] ?? _configuration["POSTGRES_PORT"];
         var adminUser = _configuration["POSTGRES_ADMIN_USER"];
         var adminPassword = _configuration["POSTGRES_ADMIN_PASSWORD"];
         
@@ -499,8 +501,9 @@ public class DatabaseEngineService : IDatabaseEngineService
 
     private async Task RotatePostgreSqlCredentialsAsync(string databaseName, string oldUsername, string newUsername, string newPassword)
     {
-        var host = _configuration["POSTGRES_HOST"] ?? throw new InvalidOperationException("POSTGRES_HOST no configurado");
-        var port = _configuration["POSTGRES_PORT"] ?? throw new InvalidOperationException("POSTGRES_PORT no configurado");
+        // Usar POSTGRES_USER_HOST para rotar credenciales de bases de usuarios
+        var host = _configuration["POSTGRES_USER_HOST"] ?? _configuration["POSTGRES_HOST"] ?? throw new InvalidOperationException("POSTGRES_USER_HOST o POSTGRES_HOST no configurado");
+        var port = _configuration["POSTGRES_USER_PORT"] ?? _configuration["POSTGRES_PORT"] ?? throw new InvalidOperationException("POSTGRES_USER_PORT o POSTGRES_PORT no configurado");
         var adminUser = _configuration["POSTGRES_ADMIN_USER"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_USER no configurado");
         var adminPassword = _configuration["POSTGRES_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("POSTGRES_ADMIN_PASSWORD no configurado");
         

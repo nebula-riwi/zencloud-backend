@@ -234,11 +234,14 @@ public class AuthController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        bool result = await _authService.ResetPasswordAsync(model.Email, model.Token, model.NewPassword);
+        var (success, errorCode, errorMessage) = await _authService.ResetPasswordWithDetailsAsync(model.Email, model.Token, model.NewPassword);
 
-        if (!result)
+        if (!success)
         {
-            throw new BadRequestException("No se pudo restablecer la contraseña. El token es inválido o ha expirado.");
+            return BadRequest(new { 
+                message = errorMessage ?? "No se pudo restablecer la contraseña. El token es inválido o ha expirado.",
+                errorCode = errorCode ?? "RESET_PASSWORD_FAILED"
+            });
         }
 
         return Ok(new { message = "Contraseña restablecida exitosamente." });

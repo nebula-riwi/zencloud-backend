@@ -23,6 +23,7 @@ public class PlanRepository : Repository<Plan>, IPlanRepository
     {
         return await _context.Plans
             .OrderBy(p => p.PlanId)
+            .AsNoTracking() // Optimización: solo lectura para mostrar planes
             .ToListAsync();
     }
 
@@ -31,6 +32,7 @@ public class PlanRepository : Repository<Plan>, IPlanRepository
         return await _dbSet
             .Where(p => p.IsActive)
             .OrderBy(p => p.PlanId)
+            .AsNoTracking() // Optimización: solo lectura para mostrar planes activos
             .ToListAsync();
     }
     

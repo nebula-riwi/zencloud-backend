@@ -64,9 +64,9 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     if (engine == null || !engine.IsActive)
         throw new BadRequestException("Motor de base de datos no válido o inactivo");
 
-    var canCreate = await _planValidationService.CanCreateDatabaseAsync(userId, engineId);
+    var (canCreate, errorMessage, currentCount, maxCount) = await _planValidationService.CanCreateDatabaseWithDetailsAsync(userId, engineId);
     if (!canCreate)
-        throw new ConflictException("Has alcanzado el límite de bases de datos para tu plan actual");
+        throw new ConflictException(errorMessage ?? "Has alcanzado el límite de bases de datos para tu plan actual");
 
     string finalDatabaseName;
 

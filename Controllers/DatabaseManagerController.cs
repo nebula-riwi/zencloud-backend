@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using ZenCloud.Data.Entities;
 using ZenCloud.DTOs.DatabaseManagement;
 using ZenCloud.Services.Interfaces;
+using ZenCloud.Exceptions;
 
 namespace ZenCloud.Controllers
 {
@@ -177,9 +178,9 @@ namespace ZenCloud.Controllers
             {
                 return Unauthorized(new { error = "No tienes acceso a esta base de datos" });
             }
-            catch (NotSupportedException ex)
+            catch (ForbiddenException ex)
             {
-                return StatusCode(StatusCodes.Status501NotImplemented, new { error = ex.Message });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
             }
             catch (Exception ex)
             {

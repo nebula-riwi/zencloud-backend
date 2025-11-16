@@ -127,26 +127,46 @@ public class DatabaseInstanceController : ControllerBase
     [SwaggerResponse(422, "Errores de validación")]
     public async Task<IActionResult> CreateDatabase([FromBody] CreateDatabaseRequestDto request)
     {
-        var database = await _databaseInstanceService.CreateDatabaseInstanceAsync(request.UserId, request.EngineId, request.DatabaseName);
-        
-        var response = new DatabaseInstanceResponseDto
+        try
         {
-            InstanceId = database.InstanceId,
-            DatabaseName = database.DatabaseName,
-            DatabaseUser = database.DatabaseUser,
-            AssignedPort = database.AssignedPort,
-            ConnectionString = database.ConnectionString,
-            Status = database.Status.ToString(),
-            EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
-            CreatedAt = database.CreatedAt,
-            ServerIpAddress = database.ServerIpAddress
-        };
+            var database = await _databaseInstanceService.CreateDatabaseInstanceAsync(request.UserId, request.EngineId, request.DatabaseName);
+            
+            var response = new DatabaseInstanceResponseDto
+            {
+                InstanceId = database.InstanceId,
+                DatabaseName = database.DatabaseName,
+                DatabaseUser = database.DatabaseUser,
+                AssignedPort = database.AssignedPort,
+                ConnectionString = database.ConnectionString,
+                Status = database.Status.ToString(),
+                EngineName = database.Engine?.EngineName.ToString() ?? "Unknown",
+                CreatedAt = database.CreatedAt,
+                ServerIpAddress = database.ServerIpAddress
+            };
 
-        return Ok(new
+            return Ok(new
+            {
+                message = "Base de datos creada exitosamente",
+                data = response
+            });
+        }
+        catch (ConflictException ex)
         {
-            message = "Base de datos creada exitosamente",
-            data = response
-        });
+            return Conflict(new { message = ex.Message, errorCode = ex.ErrorCode });
+        }
+        catch (BadRequestException ex)
+        {
+            return BadRequest(new { message = ex.Message, errorCode = ex.ErrorCode, details = ex.Details });
+        }
+        catch (NotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message, errorCode = ex.ErrorCode });
+        }
+        catch (Exception ex)
+        {
+            // Dejar que el middleware global maneje otras excepciones
+            throw;
+        }
     }
     
     

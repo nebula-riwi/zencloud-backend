@@ -58,34 +58,58 @@ public class SubscriptionLifecycleService : BackgroundService
 
     private async Task HandleExpiringSubscriptionsAsync(ISubscriptionRepository repository, IEmailService emailService)
     {
+        const int batchSize = 50; // Procesar en lotes de 50 suscripciones
         var reminderDays = new[] { 5, 1 };
+        
         foreach (var days in reminderDays)
         {
-            var expiring = await repository.GetSubscriptionsExpiringInDaysAsync(days);
-            foreach (var subscription in expiring)
+            var totalCount = await repository.CountSubscriptionsExpiringInDaysAsync(days);
+            _logger.LogInformation("Procesando {Count} suscripciones expirando en {Days} días", totalCount, days);
+            
+            var processed = 0;
+            while (processed < totalCount)
             {
-                if (subscription.LastExpirationReminderSentAt?.Date == DateTime.UtcNow.Date)
+                var expiring = await repository.GetSubscriptionsExpiringInDaysAsync(days, skip: processed, take: batchSize);
+                
+                if (!expiring.Any())
+                    break;
+                
+                // Procesar batch
+                var updates = new List<Subscription>();
+                foreach (var subscription in expiring)
                 {
-                    continue;
-                }
+                    if (subscription.LastExpirationReminderSentAt?.Date == DateTime.UtcNow.Date)
+                    {
+                        continue;
+                    }
 
-                try
-                {
-                    await emailService.SendSubscriptionExpiringEmailAsync(
-                        subscription.User.Email,
-                        subscription.User.FullName,
-                        subscription.Plan.PlanName.ToString(),
-                        subscription.EndDate);
+                    try
+                    {
+                        await emailService.SendSubscriptionExpiringEmailAsync(
+                            subscription.User.Email,
+                            subscription.User.FullName,
+                            subscription.Plan.PlanName.ToString(),
+                            subscription.EndDate);
+                        
+                        subscription.LastExpirationReminderSentAt = DateTime.UtcNow;
+                        subscription.ExpirationReminderCount++;
+                        subscription.UpdatedAt = DateTime.UtcNow;
+                        updates.Add(subscription);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "No se pudo enviar el correo de suscripción próxima a expirar para {UserId}", subscription.UserId);
+                    }
                 }
-                catch (Exception ex)
+                
+                // Actualizar batch de suscripciones
+                foreach (var subscription in updates)
                 {
-                    _logger.LogWarning(ex, "No se pudo enviar el correo de suscripción próxima a expirar para {UserId}", subscription.UserId);
+                    await repository.UpdateAsync(subscription);
                 }
-
-                subscription.LastExpirationReminderSentAt = DateTime.UtcNow;
-                subscription.ExpirationReminderCount++;
-                subscription.UpdatedAt = DateTime.UtcNow;
-                await repository.UpdateAsync(subscription);
+                
+                processed += expiring.Count();
+                _logger.LogDebug("Procesadas {Processed}/{Total} suscripciones expirando en {Days} días", processed, totalCount, days);
             }
         }
     }
@@ -95,58 +119,119 @@ public class SubscriptionLifecycleService : BackgroundService
         IDatabaseInstanceRepository databaseRepository,
         IEmailService emailService)
     {
-        var expiredSubscriptions = await subscriptionRepository.GetExpiredSubscriptionsAsync();
-        foreach (var subscription in expiredSubscriptions)
+        const int batchSize = 50; // Procesar en lotes de 50 suscripciones
+        
+        var totalCount = await subscriptionRepository.CountExpiredSubscriptionsAsync();
+        _logger.LogInformation("Procesando {Count} suscripciones expiradas", totalCount);
+        
+        var processed = 0;
+        while (processed < totalCount)
         {
-            subscription.IsActive = false;
-            subscription.PaymentStatus = PaymentStatus.Cancelled;
-            subscription.AutoRenewEnabled = false;
-            subscription.UpdatedAt = DateTime.UtcNow;
-            await subscriptionRepository.UpdateAsync(subscription);
+            var expiredSubscriptions = await subscriptionRepository.GetExpiredSubscriptionsAsync(skip: processed, take: batchSize);
+            
+            if (!expiredSubscriptions.Any())
+                break;
+            
+            foreach (var subscription in expiredSubscriptions)
+            {
+                subscription.IsActive = false;
+                subscription.PaymentStatus = PaymentStatus.Cancelled;
+                subscription.AutoRenewEnabled = false;
+                subscription.UpdatedAt = DateTime.UtcNow;
+                await subscriptionRepository.UpdateAsync(subscription);
 
-            var databases = await databaseRepository.GetByUserIdAsync(subscription.UserId);
-            foreach (var database in databases.Where(db => db.Status == DatabaseInstanceStatus.Active))
-            {
-                database.Status = DatabaseInstanceStatus.Inactive;
-                database.UpdatedAt = DateTime.UtcNow;
-                await databaseRepository.UpdateAsync(database);
-            }
+                // Desactivar bases que excedan el límite del plan gratuito
+                var databases = await databaseRepository.GetByUserIdAsync(subscription.UserId);
+                var activeDatabases = databases.Where(db => db.Status == DatabaseInstanceStatus.Active).ToList();
+                
+                // Límites del plan gratuito: 2 por motor, máximo 5 globales
+                var groupedByEngine = activeDatabases.GroupBy(db => db.EngineId).ToList();
+                var databasesToDeactivate = new List<DatabaseInstance>();
+                
+                // Desactivar bases que excedan 2 por motor
+                foreach (var engineGroup in groupedByEngine)
+                {
+                    var engineDatabases = engineGroup.OrderByDescending(db => db.CreatedAt).ToList();
+                    if (engineDatabases.Count > 2) // Límite gratis por motor
+                    {
+                        databasesToDeactivate.AddRange(engineDatabases.Skip(2));
+                    }
+                }
+                
+                // Si hay más de 5 bases activas totales, desactivar las más antiguas
+                var remainingActive = activeDatabases.Except(databasesToDeactivate).ToList();
+                if (remainingActive.Count > 5) // Límite global gratis
+                {
+                    var excessGlobal = remainingActive.OrderByDescending(db => db.CreatedAt).Skip(5);
+                    databasesToDeactivate.AddRange(excessGlobal);
+                }
+                
+                // Desactivar bases excedentes
+                foreach (var database in databasesToDeactivate)
+                {
+                    database.Status = DatabaseInstanceStatus.Inactive;
+                    database.UpdatedAt = DateTime.UtcNow;
+                    await databaseRepository.UpdateAsync(database);
+                    _logger.LogInformation("Base de datos {DatabaseId} desactivada por expiración de suscripción", database.InstanceId);
+                }
 
-            try
-            {
-                await emailService.SendSubscriptionExpiredEmailAsync(
-                    subscription.User.Email,
-                    subscription.User.FullName,
-                    subscription.Plan.PlanName.ToString());
+                try
+                {
+                    await emailService.SendSubscriptionExpiredEmailAsync(
+                        subscription.User.Email,
+                        subscription.User.FullName,
+                        subscription.Plan.PlanName.ToString());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "No se pudo enviar el correo de expiración para {UserId}", subscription.UserId);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "No se pudo enviar el correo de expiración para {UserId}", subscription.UserId);
-            }
+            
+            processed += expiredSubscriptions.Count();
+            _logger.LogDebug("Procesadas {Processed}/{Total} suscripciones expiradas", processed, totalCount);
         }
     }
 
     private async Task HandleAutoRenewalsAsync(ISubscriptionRepository repository, MercadoPagoService mercadoPagoService)
     {
-        var expiringSoon = await repository.GetSubscriptionsExpiringInDaysAsync(1);
-        foreach (var subscription in expiringSoon.Where(s => s.AutoRenewEnabled))
+        const int batchSize = 50; // Procesar en lotes de 50 suscripciones
+        
+        var totalCount = await repository.CountSubscriptionsExpiringInDaysAsync(1);
+        _logger.LogInformation("Procesando auto-renovaciones para suscripciones expirando en 1 día. Total: {Count}", totalCount);
+        
+        var processed = 0;
+        while (processed < totalCount)
         {
-            subscription.LastAutoRenewAttemptAt = DateTime.UtcNow;
-            try
+            var expiringSoon = await repository.GetSubscriptionsExpiringInDaysAsync(1, skip: processed, take: batchSize);
+            
+            if (!expiringSoon.Any())
+                break;
+            
+            var autoRenewSubscriptions = expiringSoon.Where(s => s.AutoRenewEnabled).ToList();
+            
+            foreach (var subscription in autoRenewSubscriptions)
             {
-                var success = await mercadoPagoService.TryAutoRenewSubscriptionAsync(subscription);
-                subscription.LastAutoRenewError = success ? null : "La pasarela rechazó el cobro automático.";
+                subscription.LastAutoRenewAttemptAt = DateTime.UtcNow;
+                try
+                {
+                    var success = await mercadoPagoService.TryAutoRenewSubscriptionAsync(subscription);
+                    subscription.LastAutoRenewError = success ? null : "La pasarela rechazó el cobro automático.";
+                }
+                catch (Exception ex)
+                {
+                    subscription.LastAutoRenewError = ex.Message;
+                    _logger.LogError(ex, "Error intentando auto-renovar la suscripción {SubscriptionId}", subscription.SubscriptionId);
+                }
+                finally
+                {
+                    subscription.UpdatedAt = DateTime.UtcNow;
+                    await repository.UpdateAsync(subscription);
+                }
             }
-            catch (Exception ex)
-            {
-                subscription.LastAutoRenewError = ex.Message;
-                _logger.LogError(ex, "Error intentando auto-renovar la suscripción {SubscriptionId}", subscription.SubscriptionId);
-            }
-            finally
-            {
-                subscription.UpdatedAt = DateTime.UtcNow;
-                await repository.UpdateAsync(subscription);
-            }
+            
+            processed += expiringSoon.Count();
+            _logger.LogDebug("Procesadas {Processed}/{Total} suscripciones para auto-renovación", processed, totalCount);
         }
     }
 }

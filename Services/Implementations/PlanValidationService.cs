@@ -44,7 +44,38 @@ public class PlanValidationService : IPlanValidationService
         }
 
         return true;
+    }
+    
+    public async Task<(bool CanCreate, string? ErrorMessage, int CurrentCount, int MaxCount)> CanCreateDatabaseWithDetailsAsync(Guid userId, Guid engineId)
+    {
+        var maxDatabases = await GetMaxDatabasesPerEngineAsync(userId);
+        var currentCount = await _databaseRepository.CountByUserAndEngineAsync(userId, engineId);
         
+        if (currentCount >= maxDatabases)
+        {
+            var subscription = await _context.Subscriptions
+                .Include(s => s.Plan)
+                .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
+                .OrderByDescending(s => s.StartDate)
+                .FirstOrDefaultAsync();
+            
+            var planName = subscription?.Plan.PlanName.ToString() ?? "Gratuito";
+            return (false, $"Has alcanzado el límite de {maxDatabases} bases de datos por motor para tu plan {planName}. Tienes {currentCount}/{maxDatabases} bases activas en este motor.", currentCount, maxDatabases);
+        }
+
+        var hasActiveSubscription = await _context.Subscriptions
+            .AnyAsync(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow);
+
+        if (!hasActiveSubscription)
+        {
+            var totalActive = await _databaseRepository.CountActiveByUserAsync(userId);
+            if (totalActive >= FreePlanGlobalActiveLimit)
+            {
+                return (false, $"Has alcanzado el límite global de {FreePlanGlobalActiveLimit} bases de datos activas para el plan gratuito.", totalActive, FreePlanGlobalActiveLimit);
+            }
+        }
+
+        return (true, null, currentCount, maxDatabases);
     }
 
     public async Task<int> GetMaxDatabasesPerEngineAsync(Guid userId)
@@ -61,5 +92,52 @@ public class PlanValidationService : IPlanValidationService
         }
 
         return FreePlanPerEngineLimit;
+    }
+    
+    public async Task EnforcePlanLimitsAsync(Guid userId)
+    {
+        var subscription = await _context.Subscriptions
+            .Include(s => s.Plan)
+            .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
+            .OrderByDescending(s => s.StartDate)
+            .FirstOrDefaultAsync();
+        
+        int maxPerEngine = subscription?.Plan.MaxDatabasesPerEngine ?? FreePlanPerEngineLimit;
+        int maxGlobal = subscription != null ? int.MaxValue : FreePlanGlobalActiveLimit;
+        
+        var allDatabases = await _databaseRepository.GetByUserIdAsync(userId);
+        var activeDatabases = allDatabases.Where(db => db.Status == DatabaseInstanceStatus.Active).ToList();
+        
+        // Agrupar por motor y desactivar excedentes
+        var groupedByEngine = activeDatabases.GroupBy(db => db.EngineId).ToList();
+        var databasesToDeactivate = new List<Data.Entities.DatabaseInstance>();
+        
+        foreach (var engineGroup in groupedByEngine)
+        {
+            var engineDatabases = engineGroup.OrderByDescending(db => db.CreatedAt).ToList();
+            if (engineDatabases.Count > maxPerEngine)
+            {
+                databasesToDeactivate.AddRange(engineDatabases.Skip(maxPerEngine));
+            }
+        }
+        
+        // Si es plan gratuito, también verificar límite global
+        if (subscription == null)
+        {
+            var remainingActive = activeDatabases.Except(databasesToDeactivate).ToList();
+            if (remainingActive.Count > maxGlobal)
+            {
+                var excessGlobal = remainingActive.OrderByDescending(db => db.CreatedAt).Skip(maxGlobal);
+                databasesToDeactivate.AddRange(excessGlobal);
+            }
+        }
+        
+        // Desactivar bases excedentes
+        foreach (var database in databasesToDeactivate)
+        {
+            database.Status = Data.Entities.DatabaseInstanceStatus.Inactive;
+            database.UpdatedAt = DateTime.UtcNow;
+            await _databaseRepository.UpdateAsync(database);
+        }
     }
 }

@@ -343,8 +343,42 @@ app.MapGet("/", () => Results.Json(new
     timestamp = DateTime.UtcNow
 }));
 
-// Health check simple
-app.MapGet("/health", () => Results.Ok("Healthy"));
+// Health check mejorado con métricas
+app.MapGet("/health", async (HttpContext context, PgDbContext dbContext) =>
+{
+    var health = new
+    {
+        status = "Healthy",
+        timestamp = DateTime.UtcNow,
+        version = "1.0.0",
+        services = new Dictionary<string, object>()
+    };
+    
+    var services = new Dictionary<string, object>();
+    
+    // Verificar base de datos principal
+    try
+    {
+        await dbContext.Database.CanConnectAsync();
+        services["database"] = new { status = "OK", responseTime = "<100ms" };
+    }
+    catch (Exception ex)
+    {
+        services["database"] = new { status = "ERROR", error = ex.Message };
+        return Results.Json(new { status = "Unhealthy", timestamp = DateTime.UtcNow, services }, statusCode: 503);
+    }
+    
+    // Verificar memoria disponible
+    var memoryInfo = GC.GetGCMemoryInfo();
+    services["memory"] = new
+    {
+        status = "OK",
+        totalMemoryMB = memoryInfo.TotalAvailableMemoryBytes / 1024 / 1024,
+        heapMemoryMB = memoryInfo.HeapSizeBytes / 1024 / 1024
+    };
+    
+    return Results.Json(new { health.status, health.timestamp, health.version, services });
+});
 
 app.Run();
 

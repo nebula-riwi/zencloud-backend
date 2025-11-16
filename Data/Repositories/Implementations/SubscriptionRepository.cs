@@ -72,7 +72,7 @@ public class SubscriptionRepository : Repository<Subscription>, ISubscriptionRep
         return true;
     }
     
-    public async Task<IEnumerable<Subscription>> GetSubscriptionsExpiringInDaysAsync(int days)
+    public async Task<IEnumerable<Subscription>> GetSubscriptionsExpiringInDaysAsync(int days, int skip = 0, int take = 100)
     {
         var targetDate = DateTime.UtcNow.AddDays(days);
             
@@ -82,10 +82,13 @@ public class SubscriptionRepository : Repository<Subscription>, ISubscriptionRep
             .Where(s => s.IsActive && 
                         s.EndDate.Date == targetDate.Date && 
                         s.PaymentStatus == PaymentStatus.Paid)
+            .OrderBy(s => s.SubscriptionId) // Ordenar para paginación consistente
+            .Skip(skip)
+            .Take(take)
             .ToListAsync();
     }
 
-    public async Task<IEnumerable<Subscription>> GetExpiredSubscriptionsAsync()
+    public async Task<IEnumerable<Subscription>> GetExpiredSubscriptionsAsync(int skip = 0, int take = 100)
     {
         return await _dbSet
             .Include(s => s.User)
@@ -93,6 +96,29 @@ public class SubscriptionRepository : Repository<Subscription>, ISubscriptionRep
             .Where(s => s.IsActive && 
                         s.EndDate < DateTime.UtcNow && 
                         s.PaymentStatus == PaymentStatus.Paid)
+            .OrderBy(s => s.SubscriptionId) // Ordenar para paginación consistente
+            .Skip(skip)
+            .Take(take)
             .ToListAsync();
+    }
+    
+    public async Task<int> CountSubscriptionsExpiringInDaysAsync(int days)
+    {
+        var targetDate = DateTime.UtcNow.AddDays(days);
+        
+        return await _dbSet
+            .Where(s => s.IsActive && 
+                        s.EndDate.Date == targetDate.Date && 
+                        s.PaymentStatus == PaymentStatus.Paid)
+            .CountAsync();
+    }
+    
+    public async Task<int> CountExpiredSubscriptionsAsync()
+    {
+        return await _dbSet
+            .Where(s => s.IsActive && 
+                        s.EndDate < DateTime.UtcNow && 
+                        s.PaymentStatus == PaymentStatus.Paid)
+            .CountAsync();
     }
 }

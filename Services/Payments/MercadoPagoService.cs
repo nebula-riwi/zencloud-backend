@@ -17,6 +17,7 @@ namespace ZenCloud.Services
         private readonly IUserRepository _userRepository;
         private readonly ISubscriptionRepository _subscriptionRepository;
         private readonly IPlanRepository _planRepository;
+        private readonly IPlanValidationService _planValidationService;
         private readonly ILogger<MercadoPagoService> _logger;
 
         public MercadoPagoService(
@@ -26,6 +27,7 @@ namespace ZenCloud.Services
             IUserRepository userRepository,
             ISubscriptionRepository subscriptionRepository,
             IPlanRepository planRepository,
+            IPlanValidationService planValidationService,
             ILogger<MercadoPagoService> logger)
         {
             _accessToken = configuration["MercadoPago:AccessToken"]!;
@@ -34,6 +36,7 @@ namespace ZenCloud.Services
             _emailService = emailService;
             _subscriptionRepository = subscriptionRepository;
             _planRepository = planRepository;
+            _planValidationService = planValidationService;
             _logger = logger;
 
             _httpClient = new HttpClient
@@ -300,6 +303,10 @@ namespace ZenCloud.Services
             
             if (existingSubscription != null)
             {
+                // Verificar si hay downgrade (plan anterior tenía más límites)
+                var oldPlan = existingSubscription.Plan;
+                var isDowngrade = oldPlan != null && oldPlan.MaxDatabasesPerEngine > plan.MaxDatabasesPerEngine;
+                
                 // Actualizar suscripción existente
                 existingSubscription.PlanId = plan.PlanId;
                 existingSubscription.StartDate = DateTime.UtcNow;
@@ -310,6 +317,13 @@ namespace ZenCloud.Services
                 await _subscriptionRepository.UpdateAsync(existingSubscription);
                 subscription = existingSubscription; // Guardar referencia
                 Console.WriteLine($"Suscripcion actualizada: {existingSubscription.SubscriptionId}");
+                
+                // Si hay downgrade, hacer cumplir los límites del nuevo plan
+                if (isDowngrade)
+                {
+                    await _planValidationService.EnforcePlanLimitsAsync(userId);
+                    Console.WriteLine($"Límites del plan aplicados después de downgrade para usuario: {userId}");
+                }
             }
             else
             {
