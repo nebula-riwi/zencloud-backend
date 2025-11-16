@@ -102,11 +102,23 @@ public class DatabaseEngineService : IDatabaseEngineService
         using var connection = new MySqlConnection(adminConnectionString);
         try
         {
-        await connection.OpenAsync();
+            await connection.OpenAsync();
+        }
+        catch (MySqlException mysqlEx)
+        {
+            var errorMessage = mysqlEx.ErrorCode switch
+            {
+                MySqlErrorCode.UnableToConnectToHost => $"No se puede conectar al servidor MySQL en {host}:{port}. Verifica que el servidor esté corriendo y el puerto sea correcto.",
+                MySqlErrorCode.AccessDenied => "Credenciales de administrador incorrectas. Verifica MYSQL_ADMIN_USER y MYSQL_ADMIN_PASSWORD.",
+                _ => $"Error conectando a MySQL: {mysqlEx.Message}"
+            };
+            _logger.LogError(mysqlEx, "Error conectando a MySQL: {Host}:{Port}", host, port);
+            throw new InvalidOperationException(errorMessage, mysqlEx);
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Error conectando a MySQL: {ex.Message}", ex);
+            _logger.LogError(ex, "Error inesperado conectando a MySQL: {Host}:{Port}", host, port);
+            throw new InvalidOperationException($"Error conectando a MySQL en {host}:{port}: {ex.Message}", ex);
         }
         
         try

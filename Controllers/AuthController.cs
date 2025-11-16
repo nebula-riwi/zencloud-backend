@@ -231,19 +231,38 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            return BadRequest(ModelState);
+            var errors = ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .SelectMany(x => x.Value!.Errors.Select(e => new { Field = x.Key, Message = e.ErrorMessage }))
+                .ToList();
+            
+            _logger.LogWarning("Validación falló para reset password: {Errors}", string.Join(", ", errors.Select(e => $"{e.Field}: {e.Message}")));
+            
+            return BadRequest(new { 
+                message = "Los datos proporcionados no son válidos.",
+                errorCode = "VALIDATION_ERROR",
+                errors = errors.Select(e => new { field = e.Field, message = e.Message })
+            });
         }
 
-        var (success, errorCode, errorMessage) = await _authService.ResetPasswordWithDetailsAsync(model.Email, model.Token, model.NewPassword);
+        // Decodificar email y token si vienen codificados (por si vienen de query string)
+        var email = Uri.UnescapeDataString(model.Email);
+        var token = Uri.UnescapeDataString(model.Token);
+
+        _logger.LogInformation("Intentando reset password para: {Email}", email);
+
+        var (success, errorCode, errorMessage) = await _authService.ResetPasswordWithDetailsAsync(email, token, model.NewPassword);
 
         if (!success)
         {
+            _logger.LogWarning("Reset password falló para {Email}: {ErrorCode} - {ErrorMessage}", email, errorCode, errorMessage);
             return BadRequest(new { 
                 message = errorMessage ?? "No se pudo restablecer la contraseña. El token es inválido o ha expirado.",
                 errorCode = errorCode ?? "RESET_PASSWORD_FAILED"
             });
         }
 
+        _logger.LogInformation("Reset password exitoso para: {Email}", email);
         return Ok(new { message = "Contraseña restablecida exitosamente." });
     }
 

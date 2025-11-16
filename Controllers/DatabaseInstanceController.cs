@@ -127,6 +127,25 @@ public class DatabaseInstanceController : ControllerBase
     [SwaggerResponse(422, "Errores de validación")]
     public async Task<IActionResult> CreateDatabase([FromBody] CreateDatabaseRequestDto request)
     {
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .SelectMany(x => x.Value!.Errors.Select(e => new { Field = x.Key, Message = e.ErrorMessage }))
+                .ToList();
+            
+            _logger.LogWarning("Validación falló para crear BD: {Errors}", string.Join(", ", errors.Select(e => $"{e.Field}: {e.Message}")));
+            
+            return BadRequest(new { 
+                message = "Los datos proporcionados no son válidos.",
+                errorCode = "VALIDATION_ERROR",
+                errors = errors.Select(e => new { field = e.Field, message = e.Message })
+            });
+        }
+
+        _logger.LogInformation("Creando base de datos para usuario {UserId}, motor {EngineId}, nombre: {DatabaseName}", 
+            request.UserId, request.EngineId, request.DatabaseName);
+
         try
         {
             var database = await _databaseInstanceService.CreateDatabaseInstanceAsync(request.UserId, request.EngineId, request.DatabaseName);
@@ -152,18 +171,32 @@ public class DatabaseInstanceController : ControllerBase
         }
         catch (ConflictException ex)
         {
+            _logger.LogWarning(ex, "Conflicto al crear BD para usuario {UserId}: {Message}", request.UserId, ex.Message);
             return Conflict(new { message = ex.Message, errorCode = ex.ErrorCode });
         }
         catch (BadRequestException ex)
         {
+            _logger.LogWarning(ex, "BadRequest al crear BD para usuario {UserId}: {Message}", request.UserId, ex.Message);
             return BadRequest(new { message = ex.Message, errorCode = ex.ErrorCode, details = ex.Details });
         }
         catch (NotFoundException ex)
         {
+            _logger.LogWarning(ex, "No encontrado al crear BD para usuario {UserId}: {Message}", request.UserId, ex.Message);
             return NotFound(new { message = ex.Message, errorCode = ex.ErrorCode });
         }
-        catch (Exception)
+        catch (InvalidOperationException ex) when (ex.Message.Contains("no configurado") || ex.Message.Contains("conectar"))
         {
+            _logger.LogError(ex, "Error de configuración o conexión al crear base de datos para usuario {UserId}: {Message}", request.UserId, ex.Message);
+            return BadRequest(new { 
+                message = ex.Message.Contains("no configurado") 
+                    ? "Error de configuración del servidor. Contacta al administrador." 
+                    : $"Error de conexión: {ex.Message}",
+                errorCode = "CONFIGURATION_ERROR"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error inesperado al crear base de datos para usuario {UserId}: {Message}", request.UserId, ex.Message);
             // Dejar que el middleware global maneje otras excepciones
             throw;
         }
