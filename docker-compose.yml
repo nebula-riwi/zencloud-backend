@@ -38,8 +38,9 @@ services:
       POSTGRES_HOST: "some-postgres"
       POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
       # PostgreSQL para crear bases de datos de usuarios
+      # Nota: Dentro de la red Docker, usar el puerto interno (5432), no el externo (5433)
       POSTGRES_USER_HOST: "postgres-ZenDb"
-      POSTGRES_USER_PORT: "${POSTGRES_USER_PORT:-5433}"
+      POSTGRES_USER_PORT: "5432"
 
     depends_on:
       - mysql-ZenDb
@@ -94,7 +95,12 @@ services:
     ports:
       - "5433:5432"
     volumes:
-        - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     
   # 🍃 MongoDB
   mongo-ZenDb:

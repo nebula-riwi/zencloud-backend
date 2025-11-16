@@ -142,7 +142,10 @@ public class DatabaseInstanceService : IDatabaseInstanceService
                 DatabaseName = finalDatabaseName,
                 DatabaseUser = username,
                 DatabasePasswordHash = passwordEncrypted,
-                AssignedPort = engine.DefaultPort,
+                // Usar puerto externo para usuarios (3307 para MySQL, 5433 para PostgreSQL, etc.)
+                AssignedPort = engine.EngineName == DatabaseEngineType.MySQL ? 3307 
+                    : engine.EngineName == DatabaseEngineType.PostgreSQL ? 5433
+                    : engine.DefaultPort,
                 ConnectionString = BuildConnectionString(engine, finalDatabaseName, username, password),
                 Status = DatabaseInstanceStatus.Active,
                 ServerIpAddress = "168.119.182.243",
@@ -209,12 +212,16 @@ private static string GenerateRandomSuffix(int length)
 
     public string BuildConnectionString(DatabaseEngine engine, string databaseName, string userName, string password)
     {
+        // Usar puertos externos para conexiones de usuarios (3307 para MySQL, 5433 para PostgreSQL)
+        var mysqlPort = 3307;
+        var postgresPort = 5433;
+        
         return engine.EngineName switch
         {
             DatabaseEngineType.MySQL =>
-                $"Server=168.119.182.243;Port={engine.DefaultPort};Database={databaseName};User={userName};Password={password};",
+                $"Server=168.119.182.243;Port={mysqlPort};Database={databaseName};User={userName};Password={password};",
             DatabaseEngineType.PostgreSQL =>
-                $"Host=168.119.182.243;Port={engine.DefaultPort};Database={databaseName};Username={userName};Password={password};",
+                $"Host=168.119.182.243;Port={postgresPort};Database={databaseName};Username={userName};Password={password};",
             DatabaseEngineType.MongoDB =>
                 $"mongodb://{userName}:{password}@168.119.182.243:{engine.DefaultPort}/{databaseName}",
             DatabaseEngineType.SQLServer =>
