@@ -162,7 +162,7 @@ public class DatabaseInstanceController : ControllerBase
         {
             return NotFound(new { message = ex.Message, errorCode = ex.ErrorCode });
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Dejar que el middleware global maneje otras excepciones
             throw;
