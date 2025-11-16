@@ -101,13 +101,14 @@ namespace ZenCloud.Services
             var preferenceId = jsonDoc.GetProperty("id").GetString()!;
 
             // Guardar el pago en la BD con PREFERENCE ID (no payment ID)
+            // Se crea como "Rejected" por defecto, solo se cambia a "Approved" cuando MercadoPago confirme
             var payment = new Payment
             {
                 PaymentId = Guid.NewGuid(),
                 UserId = userId,
                 Amount = plan.PriceInCOP,
                 Currency = "COP",
-                PaymentStatus = PaymentStatusType.Pending,
+                PaymentStatus = PaymentStatusType.Rejected, // Por defecto rechazado hasta que MercadoPago confirme
                 PaymentMethod = "subscription",
                 TransactionDate = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow,
@@ -223,14 +224,19 @@ namespace ZenCloud.Services
                 }
             }
             
-            // Si no se encontró por preference_id, buscar por user_id y plan_id en pagos pendientes
+            // Si no se encontró por preference_id, buscar por user_id y plan_id en pagos recientes (últimos 5 minutos)
+            // Buscamos en pagos rechazados recientes que puedan corresponder a este intento de pago
             if (payment == null && userId != Guid.Empty)
             {
-                var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
-                payment = pendingPayments.FirstOrDefault(p => p.UserId == userId);
+                var recentThreshold = DateTime.UtcNow.AddMinutes(-5);
+                var recentPayments = await _paymentRepository.GetByUserIdAsync(userId);
+                payment = recentPayments
+                    .Where(p => p.CreatedAt >= recentThreshold && p.PaymentStatus == PaymentStatusType.Rejected)
+                    .OrderByDescending(p => p.CreatedAt)
+                    .FirstOrDefault();
                 if (payment != null)
                 {
-                    Console.WriteLine($"Payment encontrado por User ID: {userId}");
+                    Console.WriteLine($"Payment encontrado por User ID (reciente): {userId}");
                 }
             }
             
@@ -258,16 +264,10 @@ namespace ZenCloud.Services
                 payment.CardId = cardId;
             }
 
-            // Actualizar estado del pago
-            payment.PaymentStatus = status switch
-            {
-                "approved" => PaymentStatusType.Approved,
-                "rejected" => PaymentStatusType.Rejected,
-                "cancelled" => PaymentStatusType.Rejected,
-                "refunded" => PaymentStatusType.Rejected,
-                "charged_back" => PaymentStatusType.Rejected,
-                _ => PaymentStatusType.Pending
-            };
+            // Actualizar estado del pago - solo dos estados: Approved o Rejected
+            payment.PaymentStatus = status == "approved" 
+                ? PaymentStatusType.Approved 
+                : PaymentStatusType.Rejected; // Todos los demás estados (rejected, cancelled, refunded, charged_back, etc.) son Rejected
             payment.TransactionDate = DateTime.UtcNow;
             // Guardar también el payment ID real de Mercado Pago
             payment.MercadoPagoPaymentId = mpPaymentId;

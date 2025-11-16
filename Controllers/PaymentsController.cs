@@ -276,45 +276,24 @@ public class PaymentsController : ControllerBase
         }
     }
 
-    // Cancel expired pending payments (called periodically or manually)
+    // Este endpoint ya no es necesario ya que los pagos se crean como "Rejected" por defecto
+    // y solo se cambian a "Approved" cuando MercadoPago confirma el pago
+    // Se mantiene solo para compatibilidad con código legacy pero no hace nada
     [HttpPost("cancel-expired-pending")]
     [Authorize]
     public async Task<IActionResult> CancelExpiredPendingPayments()
     {
         try
         {
-            var userId = GetUserIdFromClaims();
-            
-            // Obtener pagos pendientes del usuario creados hace más de 10 minutos
-            var expiredThreshold = DateTime.UtcNow.AddMinutes(-10);
-            var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
-            var userPendingPayments = pendingPayments
-                .Where(p => p.UserId == userId && p.CreatedAt < expiredThreshold)
-                .ToList();
-            
-            if (!userPendingPayments.Any())
-            {
-                return Ok(new { message = "No hay pagos pendientes expirados", cancelled = 0 });
-            }
-            
-            int cancelledCount = 0;
-            foreach (var payment in userPendingPayments)
-            {
-                // Actualizar el estado a Rejected
-                payment.PaymentStatus = PaymentStatusType.Rejected;
-                payment.TransactionDate = DateTime.UtcNow;
-                await _paymentRepository.UpdateAsync(payment);
-                cancelledCount++;
-            }
-            
+            // Ya no hay pagos "Pending" en el sistema, todos se crean como "Rejected" hasta que se confirmen
             return Ok(new { 
-                message = $"Se cancelaron {cancelledCount} pagos pendientes expirados",
-                cancelled = cancelledCount
+                message = "Ya no hay pagos pendientes en el sistema. Los pagos se crean como rechazados hasta que MercadoPago los confirme.",
+                cancelled = 0
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error cancelando pagos pendientes expirados");
+            _logger.LogError(ex, "Error en cancel-expired-pending");
             return StatusCode(500, new { error = ex.Message });
         }
     }
