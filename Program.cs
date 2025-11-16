@@ -463,15 +463,16 @@ static string TryOverrideConnectionSegment(string connectionString, string key, 
         return connectionString;
     }
 
-    var builder = new DbConnectionStringBuilder
+    // Usar regex para reemplazar la clave en la cadena de conexión directamente
+    // Esto evita problemas con DbConnectionStringBuilder que no puede parsear "SSL Mode" con espacio
+    var pattern = $@"({key}\s*=\s*)([^;]+)(;|\s*$)";
+    var replacement = $@"${{1}}{value}${{3}}";
+    
+    if (System.Text.RegularExpressions.Regex.IsMatch(connectionString, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
     {
-        ConnectionString = connectionString
-    };
-
-    if (builder.ContainsKey(key))
-    {
-        builder[key] = value;
+        return System.Text.RegularExpressions.Regex.Replace(connectionString, pattern, replacement, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
-
-    return builder.ConnectionString;
+    
+    // Si la clave no existe, no modificamos la cadena
+    return connectionString;
 }
