@@ -4,6 +4,7 @@ using ZenCloud.Services.Interfaces;
 using System.Security.Cryptography;
 using ZenCloud.Exceptions;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace ZenCloud.Services.Implementations;
 
@@ -17,6 +18,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IDatabaseEngineService _databaseEngineService;
     private readonly IEmailService _emailService;
     private readonly IEncryptionService _encryptionService;
+    private readonly ILogger<DatabaseInstanceService> _logger;
 
     public DatabaseInstanceService(
         IDatabaseInstanceRepository databaseRepository,
@@ -26,7 +28,8 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         IDatabaseEngineService databaseEngineService,
         IPlanValidationService planValidationService,
         IEmailService emailService,
-        IEncryptionService encryptionService)
+        IEncryptionService encryptionService,
+        ILogger<DatabaseInstanceService> logger)
     {
         _databaseRepository = databaseRepository;
         _userRepository = userRepository;
@@ -36,6 +39,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         _databaseEngineService = databaseEngineService;
         _emailService = emailService;
         _encryptionService = encryptionService;
+        _logger = logger;
     }
 
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
@@ -64,9 +68,14 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     if (engine == null || !engine.IsActive)
         throw new BadRequestException("Motor de base de datos no válido o inactivo");
 
+    // Validar límites ANTES de crear la BD física
     var (canCreate, errorMessage, currentCount, maxCount) = await _planValidationService.CanCreateDatabaseWithDetailsAsync(userId, engineId);
     if (!canCreate)
+    {
+        _logger.LogWarning("Límite de bases de datos alcanzado para usuario {UserId}, motor {EngineId}. Actual: {CurrentCount}, Máximo: {MaxCount}", 
+            userId, engineId, currentCount, maxCount);
         throw new ConflictException(errorMessage ?? "Has alcanzado el límite de bases de datos para tu plan actual");
+    }
 
     string finalDatabaseName;
 

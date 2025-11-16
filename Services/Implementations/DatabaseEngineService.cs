@@ -198,11 +198,28 @@ public class DatabaseEngineService : IDatabaseEngineService
         await using var connection = new NpgsqlConnection(adminConnectionString);
         try
         {
-        await connection.OpenAsync();
+            await connection.OpenAsync();
+        }
+        catch (NpgsqlException npgsqlEx) when (npgsqlEx.InnerException is System.Net.Sockets.SocketException socketEx)
+        {
+            var errorMessage = socketEx.SocketErrorCode == System.Net.Sockets.SocketError.ConnectionRefused
+                ? $"No se puede conectar al servidor PostgreSQL en {host}:{port}. El servidor no está disponible o no está corriendo. Verifica que el contenedor 'postgres-ZenDb' esté activo."
+                : $"Error de conexión a PostgreSQL en {host}:{port}: {socketEx.Message}";
+            
+            _logger.LogError(npgsqlEx, "Error conectando a PostgreSQL: {Host}:{Port} - {ErrorMessage}", host, port, errorMessage);
+            throw new InvalidOperationException(errorMessage, npgsqlEx);
+        }
+        catch (NpgsqlException npgsqlEx)
+        {
+            var errorMessage = $"Error conectando a PostgreSQL en {host}:{port}: {npgsqlEx.Message}";
+            _logger.LogError(npgsqlEx, "Error de PostgreSQL: {Host}:{Port}", host, port);
+            throw new InvalidOperationException(errorMessage, npgsqlEx);
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Error conectando a PostgreSQL: {ex.Message}", ex);
+            var errorMessage = $"Error inesperado conectando a PostgreSQL en {host}:{port}: {ex.Message}";
+            _logger.LogError(ex, "Error inesperado conectando a PostgreSQL: {Host}:{Port}", host, port);
+            throw new InvalidOperationException(errorMessage, ex);
         }
 
         try
