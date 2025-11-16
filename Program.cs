@@ -95,13 +95,11 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(
                 "http://localhost:3000",
-
                 "http://localhost:5173",
                 "https://localhost:3000",
                 "https://localhost:5173",
                 "https://nebula.andrescortes.dev",
                 "http://nebula.andrescortes.dev",
-                "https://nebula.andrescortes.dev",
                 "https://n8n.nebula.andrescortes.dev")
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -293,8 +291,8 @@ await DataSeeder.SeedAsync(app.Services);
 
 // Configure the HTTP request pipeline.
 
-// CORS debe ir PRIMERO, antes de cualquier otro middleware
-// En desarrollo, usar política más permisiva
+// CORS debe ir PRIMERO, antes de UseRouting y cualquier otro middleware
+// El orden correcto es: CORS -> Routing -> Authentication/Authorization -> Rate Limiting
 if (app.Environment.IsDevelopment())
 {
     app.UseCors("AllowAll");
@@ -304,13 +302,19 @@ else
     app.UseCors("AllowFrontend");
 }
 
-// Routing debe ir antes de otros middlewares
+// Routing debe ir después de CORS
 app.UseRouting();
+
+// Autenticación y autorización (debe ir después de UseRouting, antes de Rate Limiting)
+// Esto permite que CORS responda a OPTIONS antes de cualquier limitación
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Middleware de manejo global de excepciones
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
-// Rate Limiting (después de CORS pero antes de autenticación)
+// Rate Limiting (después de CORS, Routing, Authentication y Authorization)
+// Las peticiones OPTIONS (preflight) están en la whitelist, así que no deberían bloquearse
 app.UseIpRateLimiting();
 
 app.UseSwagger();
@@ -326,10 +330,6 @@ app.UseSwaggerUI(options =>
 // HTTPS redirection puede causar problemas en algunos entornos de producción
 // Comentado temporalmente para debugging
 // app.UseHttpsRedirection();
-
-// Autenticación y autorización (debe ir después de UseRouting)
-app.UseAuthentication();
-app.UseAuthorization();
 
 // Mapear controladores
 app.MapControllers();
