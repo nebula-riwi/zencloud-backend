@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json;
+using ZenCloud.Data.DbContext;
+using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.DTOs;
 using ZenCloud.Services;
@@ -18,19 +21,22 @@ public class PaymentsController : ControllerBase
     private readonly ISubscriptionRepository _subscriptionRepository;
     private readonly IPaymentRepository _paymentRepository;
     private readonly ILogger<PaymentsController> _logger;
+    private readonly PgDbContext _context;
 
     public PaymentsController(
         MercadoPagoService mpService, 
         IPlanRepository planRepository, 
         ISubscriptionRepository subscriptionRepository,
         IPaymentRepository paymentRepository,
-        ILogger<PaymentsController> logger)
+        ILogger<PaymentsController> logger,
+        PgDbContext context)
     {
         _mpService = mpService;
         _planRepository = planRepository;
         _subscriptionRepository = subscriptionRepository;
         _paymentRepository = paymentRepository;
         _logger = logger;
+        _context = context;
     }
 
     // Endpoint para crear pagos de suscripción
@@ -206,6 +212,66 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             Console.WriteLine($"Error obteniendo historial de pagos: {ex.Message}");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    // Get user database usage statistics for progress bars
+    [HttpGet("usage-stats")]
+    [Authorize]
+    public async Task<IActionResult> GetUsageStats()
+    {
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            
+            // Get current subscription to determine limits (optimized with projection)
+            var subscriptionData = await _context.Subscriptions
+                .Where(s => s.UserId == userId && s.IsActive && s.EndDate > DateTime.UtcNow)
+                .OrderByDescending(s => s.StartDate)
+                .Select(s => new { MaxDatabasesPerEngine = s.Plan.MaxDatabasesPerEngine })
+                .FirstOrDefaultAsync();
+            
+            int maxPerEngine = subscriptionData?.MaxDatabasesPerEngine ?? 2; // Default free plan
+            int maxGlobal = subscriptionData != null ? int.MaxValue : 5; // Free plan global limit
+            
+            // Get database counts per engine (optimized with projection)
+            var databaseCounts = await _context.DatabaseInstances
+                .Where(db => db.UserId == userId && db.Status == DatabaseInstanceStatus.Active)
+                .Include(db => db.Engine) // Need Engine for name
+                .GroupBy(db => db.EngineId)
+                .Select(g => new
+                {
+                    EngineId = g.Key,
+                    EngineName = g.First().Engine.EngineName.ToString(),
+                    Count = g.Count()
+                })
+                .ToListAsync();
+            
+            var totalActive = databaseCounts.Sum(d => d.Count);
+            
+            // Calculate usage percentages
+            var usageByEngine = databaseCounts.Select(d => new
+            {
+                engineId = d.EngineId,
+                engineName = d.EngineName,
+                used = d.Count,
+                limit = maxPerEngine,
+                percentage = Math.Round((double)d.Count / maxPerEngine * 100, 1),
+                canCreate = d.Count < maxPerEngine
+            }).ToList();
+            
+            return Ok(new
+            {
+                totalActive = totalActive,
+                totalLimit = maxGlobal == int.MaxValue ? null : (int?)maxGlobal,
+                globalPercentage = maxGlobal == int.MaxValue ? 0 : Math.Round((double)totalActive / maxGlobal * 100, 1),
+                byEngine = usageByEngine
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting usage stats");
             return StatusCode(500, new { error = ex.Message });
         }
     }

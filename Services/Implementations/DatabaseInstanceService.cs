@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using ZenCloud.Exceptions;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore.Storage;
+using ZenCloud.Data.DbContext;
 
 namespace ZenCloud.Services.Implementations;
 
@@ -19,6 +21,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IEmailService _emailService;
     private readonly IEncryptionService _encryptionService;
     private readonly ILogger<DatabaseInstanceService> _logger;
+    private readonly PgDbContext _dbContext;
 
     public DatabaseInstanceService(
         IDatabaseInstanceRepository databaseRepository,
@@ -29,7 +32,8 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         IPlanValidationService planValidationService,
         IEmailService emailService,
         IEncryptionService encryptionService,
-        ILogger<DatabaseInstanceService> logger)
+        ILogger<DatabaseInstanceService> logger,
+        PgDbContext dbContext)
     {
         _databaseRepository = databaseRepository;
         _userRepository = userRepository;
@@ -40,6 +44,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         _emailService = emailService;
         _encryptionService = encryptionService;
         _logger = logger;
+        _dbContext = dbContext;
     }
 
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
@@ -59,84 +64,128 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     }
 
     public async Task<DatabaseInstance> CreateDatabaseInstanceAsync(Guid userId, Guid engineId, string? databaseName = null)
-{
-    var user = await _userRepository.GetByIdAsync(userId);
-    if (user == null)
-        throw new NotFoundException("Usuario no encontrado");
-
-    var engine = await _engineRepository.GetByIdAsync(engineId);
-    if (engine == null || !engine.IsActive)
-        throw new BadRequestException("Motor de base de datos no válido o inactivo");
-
-    // Validar límites ANTES de crear la BD física
-    var (canCreate, errorMessage, currentCount, maxCount) = await _planValidationService.CanCreateDatabaseWithDetailsAsync(userId, engineId);
-    if (!canCreate)
     {
-        _logger.LogWarning("Límite de bases de datos alcanzado para usuario {UserId}, motor {EngineId}. Actual: {CurrentCount}, Máximo: {MaxCount}", 
-            userId, engineId, currentCount, maxCount);
-        throw new ConflictException(errorMessage ?? "Has alcanzado el límite de bases de datos para tu plan actual");
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            throw new NotFoundException("Usuario no encontrado");
+
+        var engine = await _engineRepository.GetByIdAsync(engineId);
+        if (engine == null || !engine.IsActive)
+            throw new BadRequestException("Motor de base de datos no válido o inactivo");
+
+        // Usar transacción para prevenir condiciones de carrera (Serializable isolation level)
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+        try
+        {
+            // Validar límites DENTRO de la transacción para garantizar atomicidad
+            var (canCreate, errorMessage, currentCount, maxCount) = await _planValidationService.CanCreateDatabaseWithDetailsAsync(userId, engineId);
+            if (!canCreate)
+            {
+                _logger.LogWarning("Límite de bases de datos alcanzado para usuario {UserId}, motor {EngineId}. Actual: {CurrentCount}, Máximo: {MaxCount}", 
+                    userId, engineId, currentCount, maxCount);
+                await transaction.RollbackAsync();
+                throw new ConflictException(errorMessage ?? "Has alcanzado el límite de bases de datos para tu plan actual");
+            }
+
+            string finalDatabaseName;
+
+            if (string.IsNullOrWhiteSpace(databaseName))
+            {
+                // Generar nombre automático completo
+                finalDatabaseName = _credentialsGenerator.GenerateDatabaseName(engine.EngineName.ToString(), user.UserId);
+            }
+            else
+            {
+                // Validar y normalizar nombre ingresado por usuario
+                databaseName = databaseName.ToLower().Trim();
+                if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_\-\+]+$"))
+                {
+                    await transaction.RollbackAsync();
+                    throw new BadRequestException("El nombre de la base de datos solo puede contener letras minúsculas, números, guiones y guiones bajos");
+                }
+                
+                // Agregar sufijo automático para diferenciar / estandarizar
+                string suffix = GenerateRandomSuffix(6); // función que genera 6 caracteres aleatorios seguro
+                finalDatabaseName = $"{databaseName}_{suffix}";
+            }
+
+            var username = _credentialsGenerator.GenerateUsername(finalDatabaseName);
+            var password = _credentialsGenerator.GeneratePassword();
+            var passwordEncrypted = _encryptionService.Encrypt(password);
+
+            // Crear la BD física (fuera de la transacción para evitar bloqueos largos)
+            // Pero validar límites de nuevo justo antes de crear
+            var (canStillCreate, _, currentCountAfter, _) = await _planValidationService.CanCreateDatabaseWithDetailsAsync(userId, engineId);
+            if (!canStillCreate)
+            {
+                _logger.LogWarning("Límite alcanzado durante creación - condición de carrera detectada para usuario {UserId}, motor {EngineId}. Actual: {CurrentCount}", 
+                    userId, engineId, currentCountAfter);
+                await transaction.RollbackAsync();
+                throw new ConflictException("El límite de bases de datos fue alcanzado por otro proceso simultáneo. Por favor, intenta de nuevo.");
+            }
+
+            await _databaseEngineService.CreatePhysicalDatabaseAsync(
+                engine.EngineName.ToString(),
+                finalDatabaseName,
+                username,
+                password
+            );
+
+            var databaseInstance = new DatabaseInstance
+            {
+                InstanceId = Guid.NewGuid(),
+                UserId = userId,
+                EngineId = engine.EngineId,
+                DatabaseName = finalDatabaseName,
+                DatabaseUser = username,
+                DatabasePasswordHash = passwordEncrypted,
+                AssignedPort = engine.DefaultPort,
+                ConnectionString = BuildConnectionString(engine, finalDatabaseName, username, password),
+                Status = DatabaseInstanceStatus.Active,
+                ServerIpAddress = "168.119.182.243",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _databaseRepository.CreateAsync(databaseInstance);
+
+            // Confirmar transacción ANTES de enviar el email (para no bloquear)
+            await transaction.CommitAsync();
+
+            // Enviar email después de confirmar la transacción
+            await _emailService.SendDatabaseCredentialsEmailAsync(
+                user.Email,
+                user.FullName,
+                engine.EngineName.ToString(),
+                finalDatabaseName,
+                username,
+                password,
+                databaseInstance.ServerIpAddress,
+                databaseInstance.AssignedPort
+            );
+
+            _logger.LogInformation("Base de datos creada exitosamente: {DatabaseName} para usuario {UserId}", finalDatabaseName, userId);
+            return databaseInstance;
+        }
+        catch (ConflictException)
+        {
+            // Re-lanzar ConflictException sin hacer rollback (ya se hizo arriba)
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Hacer rollback en caso de cualquier otro error
+            try
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error creando base de datos, transacción revertida para usuario {UserId}", userId);
+            }
+            catch (Exception rollbackEx)
+            {
+                _logger.LogError(rollbackEx, "Error al hacer rollback de transacción para usuario {UserId}", userId);
+            }
+            throw;
+        }
     }
-
-    string finalDatabaseName;
-
-    if (string.IsNullOrWhiteSpace(databaseName))
-    {
-        // Generar nombre automático completo
-        finalDatabaseName = _credentialsGenerator.GenerateDatabaseName(engine.EngineName.ToString(), user.UserId);
-    }
-    else
-    {
-        // Validar y normalizar nombre ingresado por usuario
-        databaseName = databaseName.ToLower().Trim();
-        if (!System.Text.RegularExpressions.Regex.IsMatch(databaseName, @"^[a-z0-9_\-\+]+$"))
-            throw new BadRequestException("El nombre de la base de datos solo puede contener letras minúsculas, números, guiones y guiones bajos");
-        
-        // Agregar sufijo automático para diferenciar / estandarizar
-        string suffix = GenerateRandomSuffix(6); // función que genera 6 caracteres aleatorios seguro
-        finalDatabaseName = $"{databaseName}_{suffix}";
-    }
-
-    var username = _credentialsGenerator.GenerateUsername(finalDatabaseName);
-    var password = _credentialsGenerator.GeneratePassword();
-    var passwordEncrypted = _encryptionService.Encrypt(password);
-
-    await _databaseEngineService.CreatePhysicalDatabaseAsync(
-        engine.EngineName.ToString(),
-        finalDatabaseName,
-        username,
-        password
-    );
-
-    var databaseInstance = new DatabaseInstance
-    {
-        InstanceId = Guid.NewGuid(),
-        UserId = userId,
-        EngineId = engine.EngineId,
-        DatabaseName = finalDatabaseName,
-        DatabaseUser = username,
-        DatabasePasswordHash = passwordEncrypted,
-        AssignedPort = engine.DefaultPort,
-        ConnectionString = BuildConnectionString(engine, finalDatabaseName, username, password),
-        Status = DatabaseInstanceStatus.Active,
-        ServerIpAddress = "168.119.182.243",
-        CreatedAt = DateTime.UtcNow
-    };
-
-    await _databaseRepository.CreateAsync(databaseInstance);
-
-    await _emailService.SendDatabaseCredentialsEmailAsync(
-        user.Email,
-        user.FullName,
-        engine.EngineName.ToString(),
-        finalDatabaseName,
-        username,
-        password,
-        databaseInstance.ServerIpAddress,
-        databaseInstance.AssignedPort
-    );
-
-    return databaseInstance;
-}
 
 // Método auxiliar para generar sufijo aleatorio
 private static string GenerateRandomSuffix(int length)
