@@ -1,5 +1,7 @@
+using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using ZenCloud.Data.DbContext;
+using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.Services.Interfaces;
 
@@ -107,6 +109,11 @@ public class PlanValidationService : IPlanValidationService
         
         var allDatabases = await _databaseRepository.GetByUserIdAsync(userId);
         var activeDatabases = allDatabases.Where(db => db.Status == DatabaseInstanceStatus.Active).ToList();
+        
+        if (!activeDatabases.Any())
+        {
+            return; // No hay bases activas, no hay nada que desactivar
+        }
         
         // Agrupar por motor y desactivar excedentes
         var groupedByEngine = activeDatabases.GroupBy(db => db.EngineId).ToList();

@@ -12,6 +12,7 @@ using ZenCloud.Data.DbContext;
 using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.DTOs.DatabaseManagement;
+using ZenCloud.Exceptions;
 using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services.Implementations
