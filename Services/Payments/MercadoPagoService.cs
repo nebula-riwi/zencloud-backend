@@ -263,6 +263,9 @@ namespace ZenCloud.Services
             {
                 "approved" => PaymentStatusType.Approved,
                 "rejected" => PaymentStatusType.Rejected,
+                "cancelled" => PaymentStatusType.Rejected,
+                "refunded" => PaymentStatusType.Rejected,
+                "charged_back" => PaymentStatusType.Rejected,
                 _ => PaymentStatusType.Pending
             };
             payment.TransactionDate = DateTime.UtcNow;

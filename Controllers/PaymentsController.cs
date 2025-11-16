@@ -276,6 +276,49 @@ public class PaymentsController : ControllerBase
         }
     }
 
+    // Cancel expired pending payments (called periodically or manually)
+    [HttpPost("cancel-expired-pending")]
+    [Authorize]
+    public async Task<IActionResult> CancelExpiredPendingPayments()
+    {
+        try
+        {
+            var userId = GetUserIdFromClaims();
+            
+            // Obtener pagos pendientes del usuario creados hace más de 30 minutos
+            var expiredThreshold = DateTime.UtcNow.AddMinutes(-30);
+            var pendingPayments = await _paymentRepository.GetByStatusAsync(PaymentStatusType.Pending);
+            var userPendingPayments = pendingPayments
+                .Where(p => p.UserId == userId && p.CreatedAt < expiredThreshold)
+                .ToList();
+            
+            if (!userPendingPayments.Any())
+            {
+                return Ok(new { message = "No hay pagos pendientes expirados", cancelled = 0 });
+            }
+            
+            int cancelledCount = 0;
+            foreach (var payment in userPendingPayments)
+            {
+                // Actualizar el estado a Rejected
+                payment.PaymentStatus = PaymentStatusType.Rejected;
+                payment.TransactionDate = DateTime.UtcNow;
+                await _paymentRepository.UpdateAsync(payment);
+                cancelledCount++;
+            }
+            
+            return Ok(new { 
+                message = $"Se cancelaron {cancelledCount} pagos pendientes expirados",
+                cancelled = cancelledCount
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelando pagos pendientes expirados");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
     [HttpPatch("auto-renew")]
     [Authorize]
     public async Task<IActionResult> UpdateAutoRenew([FromBody] UpdateAutoRenewRequest request)
