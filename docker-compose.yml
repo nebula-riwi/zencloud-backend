@@ -43,10 +43,38 @@ services:
       POSTGRES_USER_PORT: "5432"
 
     depends_on:
+      - some-postgres
       - mysql-ZenDb
       - postgres-ZenDb
       - mongo-ZenDb
       - redis-ZenDb
+
+  # 🐘 PostgreSQL Principal (Base de datos del sistema)
+  some-postgres:
+    image: postgres:18
+    container_name: some-postgres
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    environment:
+      POSTGRES_USER: "${POSTGRES_ADMIN_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_APP_DATABASE:-ZenCloud}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - some_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # 🐬 MySQL
   mysql-ZenDb:
@@ -75,7 +103,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # 🐘 PostgreSQL
+  # 🐘 PostgreSQL para usuarios (Bases de datos de clientes)
   postgres-ZenDb:
     image: postgres:16
     container_name: postgres-ZenDb
@@ -171,6 +199,9 @@ services:
 volumes:
   mysql_data:
   postgres_data:
+  some_postgres_data:
+    external: true
+    name: 7b16e4305a683cf92961802a9c47e48da519685bc3573254e970b0416298f443
   mongo_data:
   redis_data:
   n8n_data:
