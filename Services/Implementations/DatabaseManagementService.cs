@@ -109,8 +109,9 @@ namespace ZenCloud.Services.Implementations
             decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
             decryptedPassword = new string(decryptedPassword.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray()).Trim();
 
-            // LOG en consola navegador (stdout), SOLO PARA DEBUG:
-            Console.WriteLine($"[DEBUG-CONN] InstanceId={instance.InstanceId} User={instance.DatabaseUser} Host={instance.ServerIpAddress} Port={instance.AssignedPort} Db={instance.DatabaseName} Pwd={decryptedPassword} PwdLen={decryptedPassword.Length} HadNulls={hadNulls}");
+            // LOG estructurado usando ILogger
+            _logger.LogDebug("Database connection: InstanceId={InstanceId} User={User} Host={Host} Port={Port} Db={Db} PwdLen={PwdLen} HadNulls={HadNulls}",
+                instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, instance.DatabaseName, decryptedPassword.Length, hadNulls);
 
             _logger.LogInformation("Preparing DB connection for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen} hadNulls={HadNulls}",
                 instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length, hadNulls);
@@ -690,7 +691,9 @@ namespace ZenCloud.Services.Implementations
                 Password = decryptedPassword,
                 Timeout = 30,
                 CommandTimeout = 60,
-                Pooling = false
+                Pooling = true, // Habilitar pooling para mejor rendimiento
+                MaxPoolSize = 10, // Límite de conexiones en el pool
+                MinPoolSize = 0
             };
 
             var connection = new NpgsqlConnection(connectionBuilder.ConnectionString);

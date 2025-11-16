@@ -5,16 +5,19 @@ using MySqlConnector;
 using Npgsql;
 using StackExchange.Redis;
 using ZenCloud.Services.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace ZenCloud.Services.Implementations;
 
 public class DatabaseEngineService : IDatabaseEngineService
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<DatabaseEngineService> _logger;
 
-    public DatabaseEngineService(IConfiguration configuration)
+    public DatabaseEngineService(IConfiguration configuration, ILogger<DatabaseEngineService> logger)
     {
         _configuration = configuration;
+        _logger = logger;
     }
 
     public async Task CreatePhysicalDatabaseAsync(string engineName, string databaseName, string username,
@@ -111,26 +114,26 @@ public class DatabaseEngineService : IDatabaseEngineService
             // 1. Crear la base de datos
             var createDbCommand = new MySqlCommand($"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", connection);
         await createDbCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Base de datos MySQL '{databaseName}' creada o ya existe");
+            _logger.LogInformation("Base de datos MySQL '{DatabaseName}' creada o ya existe", databaseName);
         
         // 2. Crear el usuario
         var createUserCommand = new MySqlCommand(
             $"CREATE USER IF NOT EXISTS '{username}'@'%' IDENTIFIED BY '{password}';", 
             connection);
         await createUserCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Usuario MySQL '{username}' creado o ya existe");
+            _logger.LogInformation("Usuario MySQL '{Username}' creado o ya existe", username);
 
         // 3. Asignar permisos
         var grantCommand = new MySqlCommand(
             $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{username}'@'%';", 
             connection);
         await grantCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Permisos otorgados a '{username}' en '{databaseName}'");
+            _logger.LogInformation("Permisos otorgados a '{Username}' en '{DatabaseName}'", username, databaseName);
 
         // 4. Aplicar cambios
         var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
         await flushCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Privilegios aplicados");
+            _logger.LogInformation("Privilegios aplicados");
         }
         catch (MySqlException ex)
         {
@@ -200,7 +203,7 @@ public class DatabaseEngineService : IDatabaseEngineService
                 $"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '{username}') THEN CREATE USER {escapedUsername} WITH PASSWORD '{password.Replace("'", "''")}'; END IF; END $$;",
             connection);
         await createUserCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Usuario PostgreSQL '{username}' creado o ya existe");
+            _logger.LogInformation("Usuario PostgreSQL '{Username}' creado o ya existe", username);
 
         // 2. Crear la base de datos
         var createDbCommand = new NpgsqlCommand(
@@ -210,7 +213,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         try
         {
             await createDbCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' creada");
+                _logger.LogInformation("Base de datos PostgreSQL '{DatabaseName}' creada", databaseName);
         }
         catch (PostgresException ex) when (ex.SqlState == "42P04") // Database already exists
         {
@@ -219,7 +222,7 @@ public class DatabaseEngineService : IDatabaseEngineService
                     $"ALTER DATABASE {escapedDatabaseName} OWNER TO {escapedUsername};",
                 connection);
             await alterDbCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Base de datos PostgreSQL '{databaseName}' ya existe, owner actualizado");
+                _logger.LogInformation("Base de datos PostgreSQL '{DatabaseName}' ya existe, owner actualizado", databaseName);
         }
 
         // 3. Dar todos los privilegios al usuario
@@ -227,7 +230,7 @@ public class DatabaseEngineService : IDatabaseEngineService
                 $"GRANT ALL PRIVILEGES ON DATABASE {escapedDatabaseName} TO {escapedUsername};",
             connection);
         await grantCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Permisos otorgados a '{username}' en '{databaseName}'");
+            _logger.LogInformation("Permisos otorgados a '{Username}' en '{DatabaseName}'", username, databaseName);
         }
         catch (PostgresException ex)
         {
@@ -295,7 +298,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         catch (MongoWriteException ex) when (ex.WriteConcernError?.Code == 51003)
         {
             // Código de error 51003: User already exists
-            Console.WriteLine($"Usuario '{username}' ya existe. Ignorando creación.");
+            _logger.LogInformation("Usuario '{Username}' ya existe. Ignorando creación.", username);
         }
         catch (Exception ex)
         {
@@ -327,11 +330,11 @@ public class DatabaseEngineService : IDatabaseEngineService
         catch (MongoCommandException ex) when (ex.Code == 11)
         {
             // Código de error 11: User not found
-            Console.WriteLine($"Usuario '{username}' no encontrado en DB '{databaseName}'. Ignorando eliminación de usuario.");
+            _logger.LogInformation("Usuario '{Username}' no encontrado en DB '{DatabaseName}'. Ignorando eliminación de usuario.", username, databaseName);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Advertencia: Error al eliminar el usuario '{username}': {ex.Message}");
+            _logger.LogWarning(ex, "Error al eliminar el usuario '{Username}'", username);
         }
 
         // 2. Eliminar la base de datos
@@ -342,7 +345,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         catch (MongoCommandException ex) when (ex.Code == 59)
         {
             // Código de error 59: Command failed (a menudo si la DB no existía)
-            Console.WriteLine($"Advertencia: Error al eliminar la base de datos '{databaseName}'. Puede que no existiera.");
+            _logger.LogWarning("Error al eliminar la base de datos '{DatabaseName}'. Puede que no existiera.", databaseName);
         }
         catch (Exception ex)
         {
@@ -421,7 +424,7 @@ public class DatabaseEngineService : IDatabaseEngineService
             catch (Exception ex)
             {
                  // No es crítico si falla la limpieza de datos
-                 Console.WriteLine($"Advertencia: Falló FLUSHDB en Redis DB {dbIndex}. {ex.Message}");
+                 _logger.LogWarning(ex, "Falló FLUSHDB en Redis DB {DbIndex}", dbIndex);
             }
         }
         
@@ -433,7 +436,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         catch (Exception ex)
         {
             // No es crítico si falla la eliminación del usuario (podría no existir)
-            Console.WriteLine($"Advertencia: Error al eliminar usuario ACL '{username}': {ex.Message}");
+            _logger.LogWarning(ex, "Error al eliminar usuario ACL '{Username}'", username);
         }
     }
 
@@ -457,21 +460,21 @@ public class DatabaseEngineService : IDatabaseEngineService
                 $"CREATE USER IF NOT EXISTS '{newUsername}'@'%' IDENTIFIED BY '{newPassword}';", 
                 connection);
             await createUserCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Nuevo usuario MySQL '{newUsername}' creado");
+            _logger.LogInformation("Nuevo usuario MySQL '{NewUsername}' creado", newUsername);
 
             // 2. Asignar permisos al nuevo usuario
             var grantCommand = new MySqlCommand(
                 $"GRANT ALL PRIVILEGES ON `{databaseName}`.* TO '{newUsername}'@'%';", 
                 connection);
             await grantCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Permisos otorgados a '{newUsername}' en '{databaseName}'");
+            _logger.LogInformation("Permisos otorgados a '{NewUsername}' en '{DatabaseName}'", newUsername, databaseName);
 
             // 3. Eliminar el usuario antiguo (si existe y es diferente)
             if (oldUsername != newUsername)
             {
                 var dropUserCommand = new MySqlCommand($"DROP USER IF EXISTS '{oldUsername}'@'%';", connection);
                 await dropUserCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+                _logger.LogInformation("Usuario antiguo '{OldUsername}' eliminado", oldUsername);
             }
             else
             {
@@ -480,13 +483,13 @@ public class DatabaseEngineService : IDatabaseEngineService
                     $"ALTER USER '{newUsername}'@'%' IDENTIFIED BY '{newPassword}';", 
                     connection);
                 await alterUserCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+                _logger.LogInformation("Contraseña actualizada para '{NewUsername}'", newUsername);
             }
 
             // 4. Aplicar cambios
             var flushCommand = new MySqlCommand("FLUSH PRIVILEGES;", connection);
             await flushCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Privilegios aplicados");
+            _logger.LogInformation("Privilegios aplicados");
         }
         catch (MySqlException ex)
         {
@@ -518,28 +521,28 @@ public class DatabaseEngineService : IDatabaseEngineService
                 $"DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '{newUsername}') THEN CREATE USER {escapedNewUsername} WITH PASSWORD '{newPassword.Replace("'", "''")}'; END IF; END $$;",
                 connection);
             await createUserCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Nuevo usuario PostgreSQL '{newUsername}' creado o ya existe");
+            _logger.LogInformation("Nuevo usuario PostgreSQL '{NewUsername}' creado o ya existe", newUsername);
 
             // 2. Asignar permisos al nuevo usuario
             var grantCommand = new NpgsqlCommand(
                 $"GRANT ALL PRIVILEGES ON DATABASE {escapedDatabaseName} TO {escapedNewUsername};",
                 connection);
             await grantCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Permisos otorgados a '{newUsername}' en '{databaseName}'");
+            _logger.LogInformation("Permisos otorgados a '{NewUsername}' en '{DatabaseName}'", newUsername, databaseName);
 
             // 3. Cambiar el owner de la base de datos al nuevo usuario
             var alterDbCommand = new NpgsqlCommand(
                 $"ALTER DATABASE {escapedDatabaseName} OWNER TO {escapedNewUsername};",
                 connection);
             await alterDbCommand.ExecuteNonQueryAsync();
-            Console.WriteLine($"Owner de '{databaseName}' cambiado a '{newUsername}'");
+            _logger.LogInformation("Owner de '{DatabaseName}' cambiado a '{NewUsername}'", databaseName, newUsername);
 
             // 4. Eliminar el usuario antiguo (si existe y es diferente)
             if (oldUsername != newUsername)
             {
                 var dropUserCommand = new NpgsqlCommand($"DROP USER IF EXISTS {escapedOldUsername};", connection);
                 await dropUserCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+                _logger.LogInformation("Usuario antiguo '{OldUsername}' eliminado", oldUsername);
             }
             else
             {
@@ -548,7 +551,7 @@ public class DatabaseEngineService : IDatabaseEngineService
                     $"ALTER USER {escapedNewUsername} WITH PASSWORD '{newPassword.Replace("'", "''")}';",
                     connection);
                 await alterUserCommand.ExecuteNonQueryAsync();
-                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+                _logger.LogInformation("Contraseña actualizada para '{NewUsername}'", newUsername);
             }
         }
         catch (PostgresException ex)
@@ -581,7 +584,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         {
             // 1. Crear el nuevo usuario
             await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ createUser: \"{newUsername}\", pwd: \"{newPassword}\", roles: {BsonArray.Create(roles).ToJson()} }}");
-            Console.WriteLine($"Nuevo usuario MongoDB '{newUsername}' creado");
+            _logger.LogInformation("Nuevo usuario MongoDB '{NewUsername}' creado", newUsername);
 
             // 2. Eliminar el usuario antiguo (si existe y es diferente)
             if (oldUsername != newUsername)
@@ -589,25 +592,25 @@ public class DatabaseEngineService : IDatabaseEngineService
                 try
                 {
                     await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ dropUser: \"{oldUsername}\" }}");
-                    Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+                    _logger.LogInformation("Usuario antiguo '{OldUsername}' eliminado", oldUsername);
                 }
                 catch (MongoCommandException ex) when (ex.Code == 11)
                 {
-                    Console.WriteLine($"Usuario antiguo '{oldUsername}' no encontrado. Continuando...");
+                    _logger.LogInformation("Usuario antiguo '{OldUsername}' no encontrado. Continuando...", oldUsername);
                 }
             }
             else
             {
                 // Si el usuario es el mismo, actualizar la contraseña
                 await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ updateUser: \"{newUsername}\", pwd: \"{newPassword}\" }}");
-                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+                _logger.LogInformation("Contraseña actualizada para '{NewUsername}'", newUsername);
             }
         }
         catch (MongoWriteException ex) when (ex.WriteConcernError?.Code == 51003)
         {
             // Usuario ya existe, actualizar contraseña
             await targetDatabase.RunCommandAsync((Command<BsonDocument>)$"{{ updateUser: \"{newUsername}\", pwd: \"{newPassword}\" }}");
-            Console.WriteLine($"Contraseña actualizada para usuario existente '{newUsername}'");
+            _logger.LogInformation("Contraseña actualizada para usuario existente '{NewUsername}'", newUsername);
         }
         catch (Exception ex)
         {
@@ -635,7 +638,7 @@ public class DatabaseEngineService : IDatabaseEngineService
         {
             // 1. Crear el nuevo usuario ACL
             await server.ExecuteAsync("ACL", new[] { "SETUSER", newUsername, "on", $">{newPassword}", "+@all", "&*" });
-            Console.WriteLine($"Nuevo usuario Redis '{newUsername}' creado");
+            _logger.LogInformation("Nuevo usuario Redis '{NewUsername}' creado", newUsername);
 
             // 2. Eliminar el usuario antiguo (si existe y es diferente)
             if (oldUsername != newUsername)
@@ -643,18 +646,18 @@ public class DatabaseEngineService : IDatabaseEngineService
                 try
                 {
                     await server.ExecuteAsync("ACL", "DELUSER", oldUsername);
-                    Console.WriteLine($"Usuario antiguo '{oldUsername}' eliminado");
+                    _logger.LogInformation("Usuario antiguo '{OldUsername}' eliminado", oldUsername);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Advertencia: Error al eliminar usuario antiguo '{oldUsername}': {ex.Message}");
+                    _logger.LogWarning(ex, "Error al eliminar usuario antiguo '{OldUsername}'", oldUsername);
                 }
             }
             else
             {
                 // Si el usuario es el mismo, actualizar la contraseña
                 await server.ExecuteAsync("ACL", new[] { "SETUSER", newUsername, "on", $">{newPassword}", "+@all", "&*" });
-                Console.WriteLine($"Contraseña actualizada para '{newUsername}'");
+                _logger.LogInformation("Contraseña actualizada para '{NewUsername}'", newUsername);
             }
         }
         catch (Exception ex)

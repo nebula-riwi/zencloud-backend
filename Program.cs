@@ -136,6 +136,14 @@ builder.Services.AddScoped<IDatabaseQueryHistoryRepository, DatabaseQueryHistory
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+// HttpClientFactory para WebhookService con configuración optimizada
+builder.Services.AddHttpClient("WebhookClient")
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        MaxConnectionsPerServer = 10,
+        AllowAutoRedirect = false
+    })
+    .SetHandlerLifetime(TimeSpan.FromMinutes(5));
 builder.Services.AddScoped<IEmailVerificationService, EmailVerificationService>();
 builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
@@ -278,9 +286,6 @@ builder.Services.AddScoped<IEncryptionService, EncryptionService>();
 builder.Services.AddScoped<IDatabaseEngineService, DatabaseEngineService>();
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddHostedService<SubscriptionLifecycleService>();
-
-// HttpClientFactory para WebhookService
-builder.Services.AddHttpClient();
 
 var app = builder.Build();
 

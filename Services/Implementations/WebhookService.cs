@@ -6,12 +6,13 @@ using ZenCloud.Services.Interfaces;
 
 namespace ZenCloud.Services.Implementations;
 
-public class WebhookService : IWebhookService
+public class WebhookService : IWebhookService, IDisposable
 {
     private readonly IWebhookRepository _webhookRepository;
     private readonly IRepository<WebhookLog> _webhookLogRepository;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WebhookService> _logger;
+    private bool _disposed = false;
 
     public WebhookService(
         IWebhookRepository webhookRepository,
@@ -21,8 +22,7 @@ public class WebhookService : IWebhookService
     {
         _webhookRepository = webhookRepository;
         _webhookLogRepository = webhookLogRepository;
-        _httpClient = httpClientFactory.CreateClient();
-        _httpClient.Timeout = TimeSpan.FromSeconds(30);
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -126,13 +126,17 @@ public class WebhookService : IWebhookService
             CreatedAt = DateTime.UtcNow
         };
 
+        // Usar HttpClientFactory para crear clientes que se liberen automáticamente
+        using var httpClient = _httpClientFactory.CreateClient();
+        httpClient.Timeout = TimeSpan.FromSeconds(30);
+
         try
         {
             var content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
             content.Headers.Add("X-Webhook-Event", eventType.ToString());
             content.Headers.Add("X-Webhook-Signature", GenerateSignature(payloadJson, webhook.SecretToken));
 
-            var response = await _httpClient.PostAsync(webhook.WebhookUrl, content);
+            var response = await httpClient.PostAsync(webhook.WebhookUrl, content);
             var responseBody = await response.Content.ReadAsStringAsync();
 
             log.ResponseStatusCode = (int)response.StatusCode;
@@ -164,6 +168,16 @@ public class WebhookService : IWebhookService
         using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(secret));
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
         return Convert.ToBase64String(hash);
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            // HttpClientFactory maneja la liberación de recursos automáticamente
+            // No necesitamos liberar nada aquí ya que ahora usamos CreateClient() en cada método
+        }
     }
 }
 
