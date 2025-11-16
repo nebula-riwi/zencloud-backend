@@ -155,7 +155,7 @@ public class EmailService : IEmailService
             await client.DisconnectAsync(true);
         }
         
-        _logger.LogInformation("Email de verificación enviado a: {Email}", email);
+        _logger.LogInformation("Email enviado exitosamente a: {Email}", toEmail);
     }
 
     // ✅ Confirmación de pago 
