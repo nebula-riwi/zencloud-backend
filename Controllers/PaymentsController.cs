@@ -147,6 +147,10 @@ public class PaymentsController : ControllerBase
                 return Ok(new { message = "No hay suscripción activa" });
             }
 
+            var daysRemaining = subscription.EndDate > DateTime.UtcNow 
+                ? (int)(subscription.EndDate - DateTime.UtcNow).TotalDays 
+                : 0;
+            
             return Ok(new
             {
                 planId = subscription.Plan.PlanId,
@@ -158,8 +162,11 @@ public class PaymentsController : ControllerBase
                 isActive = subscription.IsActive,
                 startDate = subscription.StartDate,
                 endDate = subscription.EndDate,
+                daysRemaining = daysRemaining,
                 paymentStatus = subscription.PaymentStatus.ToString(),
-                autoRenewEnabled = subscription.AutoRenewEnabled
+                autoRenewEnabled = subscription.AutoRenewEnabled,
+                lastAutoRenewAttemptAt = subscription.LastAutoRenewAttemptAt,
+                lastAutoRenewError = subscription.LastAutoRenewError
             });
         }
         catch (Exception ex)

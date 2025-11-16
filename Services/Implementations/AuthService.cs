@@ -174,23 +174,44 @@ public class AuthService : IAuthService
         return true;
     }
     
-    public async Task<bool> ResetPasswordAsync(string email, string token, string newPassword)
+    public async Task<(bool Success, string? ErrorCode, string? ErrorMessage)> ResetPasswordWithDetailsAsync(string email, string token, string newPassword)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
         if (user == null)
         {
-            return false;
+            return (false, "USER_NOT_FOUND", "No se encontró un usuario con ese correo electrónico.");
         }
 
-        if (user.PasswordResetToken != token || user.PasswordResetExpiry == null || user.PasswordResetExpiry < DateTime.UtcNow)
+        if (string.IsNullOrWhiteSpace(user.PasswordResetToken))
         {
-            return false;
+            return (false, "NO_TOKEN_REQUESTED", "No se ha solicitado un restablecimiento de contraseña para este usuario.");
+        }
+
+        if (user.PasswordResetToken != token)
+        {
+            return (false, "INVALID_TOKEN", "El token de restablecimiento es inválido. Verifica que estés usando el enlace correcto del correo electrónico.");
+        }
+
+        if (user.PasswordResetExpiry == null || user.PasswordResetExpiry < DateTime.UtcNow)
+        {
+            return (false, "EXPIRED_TOKEN", "El token de restablecimiento ha expirado. Por favor, solicita un nuevo restablecimiento de contraseña.");
         }
 
         var (isValid, tokenEmail) = _emailVerificationService.ValidateVerificationToken(token);
         if (!isValid || tokenEmail != email)
         {
-            return false;
+            return (false, "INVALID_TOKEN_SIGNATURE", "El token de restablecimiento no es válido. El token puede estar corrupto o haber sido modificado.");
+        }
+
+        // Validar fortaleza de contraseña
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 8)
+        {
+            return (false, "WEAK_PASSWORD", "La contraseña debe tener al menos 8 caracteres.");
+        }
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d]).*$"))
+        {
+            return (false, "WEAK_PASSWORD", "La contraseña debe contener al menos una letra minúscula, una letra mayúscula, un número y un carácter especial.");
         }
 
         string hashedPassword = _passwordHasher.HashPassword(newPassword);
@@ -202,6 +223,12 @@ public class AuthService : IAuthService
         await _dbContext.SaveChangesAsync();
 
         _logger.LogInformation($"Contraseña restablecida exitosamente para: {email}");
-        return true;
+        return (true, null, null);
+    }
+    
+    public async Task<bool> ResetPasswordAsync(string email, string token, string newPassword)
+    {
+        var (success, _, _) = await ResetPasswordWithDetailsAsync(email, token, newPassword);
+        return success;
     }
 }

@@ -125,7 +125,7 @@ public static class DataSeeder
         {
             var engines = new[]
             {
-                (DatabaseEngineType.MySQL, 3306, "Instancias MySQL administradas"),
+                (DatabaseEngineType.MySQL, 3307, "Instancias MySQL administradas"),
                 (DatabaseEngineType.PostgreSQL, 5432, "Instancias PostgreSQL administradas"),
                 (DatabaseEngineType.MongoDB, 27017, "Clusters MongoDB administrados"),
                 (DatabaseEngineType.SQLServer, 1433, "Instancias SQL Server administradas"),

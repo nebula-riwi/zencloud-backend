@@ -65,11 +65,14 @@ namespace ZenCloud.Services.Implementations
             ValidateCustomQuerySecurity(query);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            await using var connection = await _connectionManager.GetConnectionAsync(instance);
-
+            MySqlConnection? connection = null;
             var stopwatch = Stopwatch.StartNew();
+            
             try
             {
+                connection = await _connectionManager.GetConnectionAsync(instance);
+                
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60)); // Timeout de 60 segundos para queries
                 var result = await _queryExecutor.ExecuteSafeQueryAsync(connection, query);
                 stopwatch.Stop();
 
@@ -84,11 +87,41 @@ namespace ZenCloud.Services.Implementations
 
                 return result;
             }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("conectar") || ex.Message.Contains("Timeout"))
+            {
+                stopwatch.Stop();
+                await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+                _logger.LogWarning(ex, "Error de conexión ejecutando query para instancia {InstanceId}", instanceId);
+                throw new BadRequestException(ex.Message);
+            }
+            catch (TimeoutException ex)
+            {
+                stopwatch.Stop();
+                var timeoutMessage = "La consulta tardó más de 60 segundos en ejecutarse y fue cancelada. Considera optimizar tu consulta o dividirla en consultas más pequeñas.";
+                await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, timeoutMessage);
+                _logger.LogWarning(ex, "Timeout ejecutando query para instancia {InstanceId}", instanceId);
+                throw new BadRequestException(timeoutMessage);
+            }
             catch (Exception ex)
             {
                 stopwatch.Stop();
                 await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+                _logger.LogError(ex, "Error ejecutando query para instancia {InstanceId}", instanceId);
                 throw;
+            }
+            finally
+            {
+                if (connection != null)
+                {
+                    try
+                    {
+                        await _connectionManager.CloseConnectionAsync(connection);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error cerrando conexión MySQL");
+                    }
+                }
             }
         }
 
@@ -99,35 +132,55 @@ namespace ZenCloud.Services.Implementations
                 .FirstOrDefaultAsync(x => x.InstanceId == instanceId);
 
             if (instance == null)
-                throw new KeyNotFoundException($"Database instance {instanceId} not found");
+                throw new NotFoundException($"Base de datos con ID {instanceId} no encontrada");
 
             if (instance.UserId != userId)
-                throw new UnauthorizedAccessException("You don't have access to this database instance");
+                throw new UnauthorizedAccessException("No tienes acceso a esta base de datos");
 
             var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
             bool hadNulls = decryptedPassword.IndexOf('\0') >= 0;
             decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
             decryptedPassword = new string(decryptedPassword.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray()).Trim();
 
-            // LOG estructurado usando ILogger
             _logger.LogDebug("Database connection: InstanceId={InstanceId} User={User} Host={Host} Port={Port} Db={Db} PwdLen={PwdLen} HadNulls={HadNulls}",
                 instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, instance.DatabaseName, decryptedPassword.Length, hadNulls);
-
-            _logger.LogInformation("Preparing DB connection for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen} hadNulls={HadNulls}",
-                instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length, hadNulls);
 
             if (string.IsNullOrWhiteSpace(decryptedPassword))
             {
                 _logger.LogError("Database password is empty after decryption/cleanup for instance {InstanceId}", instance.InstanceId);
-                throw new ArgumentException("Database password is invalid after decryption/cleanup.");
+                throw new BadRequestException("La contraseña de la base de datos es inválida después de la descifrado.");
             }
 
-            QueryResult result = instance.Engine?.EngineName == DatabaseEngineType.PostgreSQL
-                ? await GetPostgreSQLTablesAsync(instance)
-                : await GetMySQLTablesAsync(instance);
+            if (instance.Engine == null)
+            {
+                throw new NotFoundException("Motor de base de datos no encontrado para esta instancia");
+            }
+
+            QueryResult result;
+            try
+            {
+                result = instance.Engine.EngineName == DatabaseEngineType.PostgreSQL
+                    ? await GetPostgreSQLTablesAsync(instance)
+                    : await GetMySQLTablesAsync(instance);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("conectar") || ex.Message.Contains("Timeout"))
+            {
+                _logger.LogWarning(ex, "Error de conexión obteniendo tablas para instancia {InstanceId}", instanceId);
+                throw new BadRequestException(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error obteniendo tablas para instancia {InstanceId}", instanceId);
+                throw new BadRequestException($"Error al obtener las tablas: {ex.Message}");
+            }
 
             if (!result.Success)
-                throw new Exception($"Error fetching tables: {result.ErrorMessage}");
+            {
+                var errorMessage = !string.IsNullOrEmpty(result.ErrorMessage) 
+                    ? result.ErrorMessage 
+                    : "Error desconocido al obtener las tablas";
+                throw new BadRequestException($"Error al obtener las tablas: {errorMessage}");
+            }
 
             return result.Rows
                 .Cast<object[]>()
@@ -156,13 +209,17 @@ namespace ZenCloud.Services.Implementations
                     Database = instance.DatabaseName,
                     UserID = instance.DatabaseUser,
                     Password = decryptedPassword,
+                    ConnectionTimeout = 30,
+                    DefaultCommandTimeout = 60
                 };
 
                 _logger.LogInformation("MySQL connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
                     instance.InstanceId, instance.DatabaseUser, instance.ServerIpAddress, instance.AssignedPort, decryptedPassword.Length);
 
                 await using var connection = new MySqlConnector.MySqlConnection(builder.ConnectionString);
-                await connection.OpenAsync();
+                
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                await connection.OpenAsync(cts.Token);
 
                 const string query = @"
                     SELECT 
@@ -484,11 +541,23 @@ namespace ZenCloud.Services.Implementations
             await ValidateUserAccessAsync(instanceId, userId);
             var instance = await GetDatabaseInstanceAsync(instanceId);
 
-            string dumpContent = instance.Engine?.EngineName switch
+            if (instance.Engine == null)
+            {
+                throw new NotFoundException("Motor de base de datos no encontrado");
+            }
+
+            // Solo permitir exportación de MySQL y PostgreSQL
+            if (instance.Engine.EngineName != DatabaseEngineType.MySQL && 
+                instance.Engine.EngineName != DatabaseEngineType.PostgreSQL)
+            {
+                throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL y PostgreSQL.");
+            }
+
+            string dumpContent = instance.Engine.EngineName switch
             {
                 DatabaseEngineType.MySQL => await ExportMySqlAsync(instance),
                 DatabaseEngineType.PostgreSQL => await ExportPostgreSqlAsync(instance),
-                _ => throw new NotSupportedException("La exportación solo está disponible para bases de datos MySQL y PostgreSQL.")
+                _ => throw new ForbiddenException("Motor no soportado para exportación")
             };
 
             return new DatabaseExportResult

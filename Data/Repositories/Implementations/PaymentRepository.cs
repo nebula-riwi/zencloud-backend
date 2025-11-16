@@ -37,6 +37,7 @@ public class PaymentRepository : Repository<Payment>, IPaymentRepository
                 .ThenInclude(s => s!.Plan)
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.CreatedAt)
+            .AsNoTracking() // Optimización: solo lectura para historial de pagos
             .ToListAsync();
     }
     
@@ -46,6 +47,7 @@ public class PaymentRepository : Repository<Payment>, IPaymentRepository
             .Include(p => p.User)
             .Where(p => p.PaymentStatus == status)
             .OrderByDescending(p => p.CreatedAt)
+            .AsNoTracking() // Optimización: solo lectura para búsqueda de pagos
             .ToListAsync();
     }
 
