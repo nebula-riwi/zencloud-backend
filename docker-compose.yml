@@ -69,7 +69,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - some_postgres_data:/var/lib/postgresql/data
+      - some_postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-postgres}"]
       interval: 10s
