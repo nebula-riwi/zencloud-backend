@@ -7,6 +7,7 @@ using ZenCloud.Data.Repositories.Interfaces;
 using System.IO;
 using ZenCloud.Data.Entities;
 using ZenCloud.Services.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace ZenCloud.Services.Implementations;
 
@@ -19,9 +20,9 @@ public class EmailService : IEmailService
     private readonly string _fromEmail;
     private readonly string _fromName;
     private readonly string _verificationEmailTemplate;
-    
+    private readonly ILogger<EmailService> _logger;
 
-    public EmailService()
+    public EmailService(ILogger<EmailService> logger)
     {
         _smtpServer = System.Environment.GetEnvironmentVariable("SMTP_SERVER");
         _smtpPort = int.Parse(System.Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
@@ -29,6 +30,7 @@ public class EmailService : IEmailService
         _smtpPassword = System.Environment.GetEnvironmentVariable("SMTP_PASSWORD");
         _fromEmail = System.Environment.GetEnvironmentVariable("SMTP_FROMEMAIL");
         _fromName = System.Environment.GetEnvironmentVariable("SMTP_FROMNAME");
+        _logger = logger;
 
         _verificationEmailTemplate = File.ReadAllText("Templates/VerificationEmailTemplate.html");
     }
@@ -55,11 +57,14 @@ public class EmailService : IEmailService
 
         using (var client = new SmtpClient())
         {
+            client.Timeout = 30000; // 30 segundos timeout
             await client.ConnectAsync(_smtpServer, _smtpPort, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
         }
+        
+        _logger.LogInformation("Email de verificación enviado a: {Email}", email);
     }
 
     public async Task SendPasswordResetEmailAsync(string email, string resetToken)
@@ -117,18 +122,18 @@ public class EmailService : IEmailService
 
         using (var client = new SmtpClient())
         {
+            client.Timeout = 30000; // 30 segundos timeout
             await client.ConnectAsync(_smtpServer, _smtpPort, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
-            }
+        }
 
-            Console.WriteLine($"Email de restablecimiento de contraseña enviado a: {email}");
+        _logger.LogInformation("Email de restablecimiento de contraseña enviado a: {Email}", email);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error enviando email de restablecimiento de contraseña: {ex.Message}");
-            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            _logger.LogError(ex, "Error enviando email de restablecimiento de contraseña a: {Email}", email);
             throw;
         }
     }
@@ -143,11 +148,14 @@ public class EmailService : IEmailService
 
         using (var client = new SmtpClient())
         {
+            client.Timeout = 30000; // 30 segundos timeout
             await client.ConnectAsync(_smtpServer, _smtpPort, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(_smtpUsername, _smtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
         }
+        
+        _logger.LogInformation("Email de verificación enviado a: {Email}", email);
     }
 
     // ✅ Confirmación de pago 
