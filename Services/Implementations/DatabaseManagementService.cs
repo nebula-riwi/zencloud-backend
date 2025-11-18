@@ -1303,6 +1303,7 @@ namespace ZenCloud.Services.Implementations
             await writer.WriteLineAsync($"-- Database: `{databaseName}`");
             await writer.WriteLineAsync($"-- Generated at: {DateTime.UtcNow:O}");
             await writer.WriteLineAsync("SET FOREIGN_KEY_CHECKS=0;");
+            await writer.FlushAsync(); // Flush inicial
 
             var tables = new List<string>();
             using (var showTablesCommand = new MySqlCommand("SHOW TABLES;", connection))
@@ -1333,7 +1334,9 @@ namespace ZenCloud.Services.Implementations
 
                 await writer.WriteLineAsync();
                 await writer.WriteLineAsync($"-- Data for table `{table}`");
+                await writer.FlushAsync(); // Flush después de estructura
 
+                int rowCount = 0;
                 using (var dataCommand = new MySqlCommand($"SELECT * FROM `{table}`;", connection))
                 using (var dataReader = await dataCommand.ExecuteReaderAsync())
                 {
@@ -1346,11 +1349,21 @@ namespace ZenCloud.Services.Implementations
                         }
 
                         await writer.WriteLineAsync($"INSERT INTO `{table}` VALUES ({string.Join(", ", values)});");
+                        
+                        // Flush cada 100 filas para mantener el streaming activo
+                        rowCount++;
+                        if (rowCount % 100 == 0)
+                        {
+                            await writer.FlushAsync();
+                        }
                     }
                 }
+                
+                await writer.FlushAsync(); // Flush al final de cada tabla
             }
 
             await writer.WriteLineAsync("SET FOREIGN_KEY_CHECKS=1;");
+            await writer.FlushAsync(); // Flush final
         }
 
         private async Task BuildPostgresDumpToStreamAsync(NpgsqlConnection connection, string databaseName, StreamWriter writer)
@@ -1363,6 +1376,7 @@ namespace ZenCloud.Services.Implementations
             await writer.WriteLineAsync("SET client_encoding = 'UTF8';");
             await writer.WriteLineAsync("SET standard_conforming_strings = on;");
             await writer.WriteLineAsync();
+            await writer.FlushAsync(); // Flush inicial
 
             var tables = new List<string>();
             const string tableSql = @"
@@ -1397,7 +1411,11 @@ namespace ZenCloud.Services.Implementations
                     await writer.WriteLineAsync($"ALTER TABLE ONLY \"{table}\" ADD CONSTRAINT \"{table}_pkey\" PRIMARY KEY ({pkColumns});");
                 }
 
+                await writer.FlushAsync(); // Flush después de estructura
+
                 await AppendPostgresTableDataToStreamAsync(connection, table, writer);
+                
+                await writer.FlushAsync(); // Flush al final de cada tabla
             }
         }
 
@@ -1410,6 +1428,7 @@ namespace ZenCloud.Services.Implementations
             await using var command = new NpgsqlCommand(selectSql, connection);
             await using var reader = await command.ExecuteReaderAsync();
 
+            int rowCount = 0;
             while (await reader.ReadAsync())
             {
                 var values = new string[reader.FieldCount];
@@ -1419,6 +1438,13 @@ namespace ZenCloud.Services.Implementations
                 }
 
                 await writer.WriteLineAsync($"INSERT INTO \"{table}\" VALUES ({string.Join(", ", values)});");
+                
+                // Flush cada 100 filas para mantener el streaming activo
+                rowCount++;
+                if (rowCount % 100 == 0)
+                {
+                    await writer.FlushAsync();
+                }
             }
         }
 
