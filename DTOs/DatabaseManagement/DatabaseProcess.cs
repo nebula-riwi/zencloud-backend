@@ -11,5 +11,7 @@ namespace ZenCloud.DTOs.DatabaseManagement
         public int Time { get; set; } // en segundos
         public string? State { get; set; }
         public string? Info { get; set; } // Query que está ejecutando
+        public long? MemoryUsageKb { get; set; }
+        public double? CpuUsagePercent { get; set; }
     }
 }
