@@ -27,6 +27,7 @@ namespace ZenCloud.Services.Implementations
         private readonly PgDbContext _context;
         private readonly ILogger<DatabaseManagementService> _logger;
         private readonly IDatabaseQueryHistoryRepository _queryHistoryRepository;
+        private readonly IPostgresQueryExecutor _postgresQueryExecutor;
 
         private readonly Regex _validIdentifierRegex = new Regex("^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", RegexOptions.Compiled);
 
@@ -40,6 +41,7 @@ namespace ZenCloud.Services.Implementations
             IMySQLConnectionManager connectionManager,
             IQueryExecutor queryExecutor,
             IAuditService auditService,
+            IPostgresQueryExecutor postgresQueryExecutor,
             IEncryptionService encryptionService,
             PgDbContext context,
             ILogger<DatabaseManagementService> logger,
@@ -48,6 +50,7 @@ namespace ZenCloud.Services.Implementations
             _connectionManager = connectionManager;
             _queryExecutor = queryExecutor;
             _auditService = auditService;
+            _postgresQueryExecutor = postgresQueryExecutor;
             _encryptionService = encryptionService;
             _context = context;
             _logger = logger;
@@ -67,15 +70,19 @@ namespace ZenCloud.Services.Implementations
             ValidateCustomQuerySecurity(query);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            MySqlConnection? connection = null;
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
+
             var stopwatch = Stopwatch.StartNew();
-            
+
             try
             {
-                connection = await _connectionManager.GetConnectionAsync(instance);
-                
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60)); // Timeout de 60 segundos para queries
-                var result = await _queryExecutor.ExecuteSafeQueryAsync(connection, query);
+                QueryResult result = engineType switch
+                {
+                    DatabaseEngineType.MySQL => await ExecuteMySqlQueryAsync(instance, query),
+                    DatabaseEngineType.PostgreSQL => await ExecutePostgresQueryAsync(instance, query),
+                    _ => throw new BadRequestException($"El motor {engineType} no soporta el editor SQL todavía")
+                };
+
                 stopwatch.Stop();
 
                 await PersistQueryHistoryAsync(instance, userId, query, result.Success, result.Rows.Count, stopwatch.Elapsed.TotalMilliseconds, result.ErrorMessage);
@@ -96,6 +103,20 @@ namespace ZenCloud.Services.Implementations
                 _logger.LogWarning(ex, "Error de conexión ejecutando query para instancia {InstanceId}", instanceId);
                 throw new BadRequestException(ex.Message);
             }
+            catch (PostgresException ex)
+            {
+                stopwatch.Stop();
+                await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+                _logger.LogWarning(ex, "Error de PostgreSQL ejecutando query para instancia {InstanceId}", instanceId);
+                throw new BadRequestException(ex.Message);
+            }
+            catch (NpgsqlException ex)
+            {
+                stopwatch.Stop();
+                await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+                _logger.LogWarning(ex, "Error de conexión PostgreSQL ejecutando query para instancia {InstanceId}", instanceId);
+                throw new BadRequestException(ex.Message);
+            }
             catch (TimeoutException ex)
             {
                 stopwatch.Stop();
@@ -110,20 +131,6 @@ namespace ZenCloud.Services.Implementations
                 await PersistQueryHistoryAsync(instance, userId, query, false, null, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
                 _logger.LogError(ex, "Error ejecutando query para instancia {InstanceId}", instanceId);
                 throw;
-            }
-            finally
-            {
-                if (connection != null)
-                {
-                    try
-                    {
-                        await _connectionManager.CloseConnectionAsync(connection);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error cerrando conexión MySQL");
-                    }
-                }
             }
         }
 
@@ -346,13 +353,24 @@ namespace ZenCloud.Services.Implementations
                 throw new ArgumentException("Nombre de tabla contiene caracteres inválidos");
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
 
             if (!IsValidDatabaseIdentifier(instance.DatabaseName))
                 throw new ArgumentException("Nombre de base de datos contiene caracteres inválidos");
 
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            return engineType switch
+            {
+                DatabaseEngineType.MySQL => await GetMySqlTableSchemaAsync(instance, tableName),
+                DatabaseEngineType.PostgreSQL => await GetPostgresTableSchemaAsync(instance, tableName),
+                _ => throw new BadRequestException("El motor seleccionado no soporta la visualización del esquema todavía")
+            };
+        }
 
-            var columnsQuery = @"
+        private async Task<TableSchema> GetMySqlTableSchemaAsync(DatabaseInstance instance, string tableName)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
+
+            const string columnsQuery = @"
                 SELECT 
                     COLUMN_NAME as ColumnName,
                     DATA_TYPE as DataType,
@@ -366,7 +384,42 @@ namespace ZenCloud.Services.Implementations
                 ORDER BY ORDINAL_POSITION";
 
             var parameters = new { databaseName = instance.DatabaseName, tableName };
-            var columnsResult = await ExecuteParameterizedQueryAsync(connection, columnsQuery, parameters);
+            var columnsResult = await ExecuteMySqlParameterizedQueryAsync(connection, columnsQuery, parameters);
+
+            return new TableSchema
+            {
+                TableName = tableName,
+                Columns = MapToColumnInfoList(columnsResult)
+            };
+        }
+
+        private async Task<TableSchema> GetPostgresTableSchemaAsync(DatabaseInstance instance, string tableName)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+
+            const string columnsQuery = @"
+                SELECT 
+                    c.column_name AS ColumnName,
+                    c.data_type AS DataType,
+                    c.is_nullable AS IsNullable,
+                    c.column_default AS DefaultValue,
+                    c.character_maximum_length AS MaxLength,
+                    CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 'PRI' ELSE '' END AS ColumnKey
+                FROM information_schema.columns c
+                LEFT JOIN information_schema.key_column_usage kcu
+                    ON c.table_name = kcu.table_name
+                    AND c.table_schema = kcu.table_schema
+                    AND c.column_name = kcu.column_name
+                LEFT JOIN information_schema.table_constraints tc
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                    AND tc.table_name = kcu.table_name
+                WHERE c.table_schema = 'public'
+                AND c.table_name = @tableName
+                ORDER BY c.ordinal_position";
+
+            var parameters = new { tableName };
+            var columnsResult = await ExecutePostgresParameterizedQueryAsync(connection, columnsQuery, parameters);
 
             return new TableSchema
             {
@@ -386,22 +439,14 @@ namespace ZenCloud.Services.Implementations
                 limit = 100;
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
 
-            var tableExistsQuery = @"
-                SELECT COUNT(*) 
-                FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_SCHEMA = @databaseName 
-                AND TABLE_NAME = @tableName";
-
-            var tableExistsParams = new { databaseName = instance.DatabaseName, tableName };
-            var tableExistsResult = await ExecuteParameterizedQueryAsync(connection, tableExistsQuery, tableExistsParams);
-
-            if (tableExistsResult.Rows.Count == 0 || (long)(tableExistsResult.Rows[0][0] ?? 0) == 0)
-                throw new ArgumentException($"La tabla '{tableName}' no existe");
-
-            var query = $"SELECT * FROM `{EscapeTableName(tableName)}` LIMIT {limit}";
-            var result = await _queryExecutor.ExecuteSelectQueryAsync(connection, query, limit);
+            QueryResult result = engineType switch
+            {
+                DatabaseEngineType.MySQL => await GetMySqlTableDataAsync(instance, tableName, limit),
+                DatabaseEngineType.PostgreSQL => await GetPostgresTableDataAsync(instance, tableName, limit),
+                _ => throw new BadRequestException("El motor seleccionado no soporta la visualización de datos todavía")
+            };
 
             await _auditService.LogDatabaseEventAsync(
                 userId,
@@ -413,12 +458,59 @@ namespace ZenCloud.Services.Implementations
             return result;
         }
 
+        private async Task<QueryResult> GetMySqlTableDataAsync(DatabaseInstance instance, string tableName, int limit)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
+
+            var tableExistsQuery = @"
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = @databaseName 
+                AND TABLE_NAME = @tableName";
+
+            var tableExistsParams = new { databaseName = instance.DatabaseName, tableName };
+            var tableExistsResult = await ExecuteMySqlParameterizedQueryAsync(connection, tableExistsQuery, tableExistsParams);
+
+            if (tableExistsResult.Rows.Count == 0 || (long)(tableExistsResult.Rows[0][0] ?? 0) == 0)
+                throw new ArgumentException($"La tabla '{tableName}' no existe");
+
+            var query = $"SELECT * FROM `{EscapeTableName(tableName)}` LIMIT {limit}";
+            return await _queryExecutor.ExecuteSelectQueryAsync(connection, query, limit);
+        }
+
+        private async Task<QueryResult> GetPostgresTableDataAsync(DatabaseInstance instance, string tableName, int limit)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+
+            var tableExistsQuery = @"
+                SELECT COUNT(*) 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = @tableName";
+
+            var tableExistsParams = new { tableName };
+            var tableExistsResult = await ExecutePostgresParameterizedQueryAsync(connection, tableExistsQuery, tableExistsParams);
+
+            if (tableExistsResult.Rows.Count == 0 || Convert.ToInt64(tableExistsResult.Rows[0][0] ?? 0) == 0)
+                throw new ArgumentException($"La tabla '{tableName}' no existe");
+
+            var query = $"SELECT * FROM \"{EscapePostgresIdentifier(tableName)}\" LIMIT {limit}";
+            return await _postgresQueryExecutor.ExecuteSelectQueryAsync(connection, query, limit);
+        }
+
         public async Task<bool> TestConnectionAsync(Guid instanceId, Guid userId)
         {
             await ValidateUserAccessAsync(instanceId, userId);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            var result = await _connectionManager.ValidateConnectionAsync(instance);
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
+
+            bool result = engineType switch
+            {
+                DatabaseEngineType.MySQL => await _connectionManager.ValidateConnectionAsync(instance),
+                DatabaseEngineType.PostgreSQL => await TestPostgresConnectionAsync(instance),
+                _ => throw new BadRequestException("El motor seleccionado no soporta test de conexión")
+            };
 
             await _auditService.LogDatabaseEventAsync(
                 userId,
@@ -430,16 +522,42 @@ namespace ZenCloud.Services.Implementations
             return result;
         }
 
+        private async Task<bool> TestPostgresConnectionAsync(DatabaseInstance instance)
+        {
+            try
+            {
+                await using var connection = await CreatePostgresConnectionAsync(instance);
+                await using var command = new NpgsqlCommand("SELECT 1", connection);
+                var result = await command.ExecuteScalarAsync();
+                return result?.ToString() == "1";
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public async Task<DatabaseInfo> GetDatabaseInfoAsync(Guid instanceId, Guid userId)
         {
             await ValidateUserAccessAsync(instanceId, userId);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
 
             if (!IsValidDatabaseIdentifier(instance.DatabaseName))
                 throw new ArgumentException("Nombre de base de datos contiene caracteres inválidos");
 
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            return engineType switch
+            {
+                DatabaseEngineType.MySQL => await GetMySqlDatabaseInfoAsync(instance),
+                DatabaseEngineType.PostgreSQL => await GetPostgresDatabaseInfoAsync(instance),
+                _ => throw new BadRequestException("El motor seleccionado no soporta la obtención de información todavía")
+            };
+        }
+
+        private async Task<DatabaseInfo> GetMySqlDatabaseInfoAsync(DatabaseInstance instance)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
 
             var query = @"
                 SELECT 
@@ -456,7 +574,7 @@ namespace ZenCloud.Services.Implementations
                     @@collation_database as Collation";
 
             var parameters = new { databaseName = instance.DatabaseName };
-            var result = await ExecuteParameterizedQueryAsync(connection, query, parameters);
+            var result = await ExecuteMySqlParameterizedQueryAsync(connection, query, parameters);
 
             if (!result.Success || result.Rows.Count == 0)
                 throw new Exception("Failed to get database information");
@@ -474,12 +592,70 @@ namespace ZenCloud.Services.Implementations
             };
         }
 
+        private async Task<DatabaseInfo> GetPostgresDatabaseInfoAsync(DatabaseInstance instance)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+
+            var query = @"
+                SELECT 
+                    version() as Version,
+                    inet_server_addr() as Hostname,
+                    inet_server_port() as Port,
+                    pg_database_size(@databaseName) as TotalSize,
+                    (SELECT COUNT(*) 
+                     FROM information_schema.tables 
+                     WHERE table_schema = 'public') as TableCount,
+                    pg_encoding_to_char(encoding) as CharacterSet,
+                    datcollate as Collation
+                FROM pg_database
+                WHERE datname = @databaseName";
+
+            var parameters = new { databaseName = instance.DatabaseName };
+            var result = await ExecutePostgresParameterizedQueryAsync(connection, query, parameters);
+
+            if (!result.Success || result.Rows.Count == 0)
+                throw new Exception("Failed to get database information");
+
+            return new DatabaseInfo
+            {
+                Name = instance.DatabaseName,
+                Version = result.Rows[0][0]?.ToString() ?? "Unknown",
+                Hostname = result.Rows[0][1]?.ToString() ?? "Unknown",
+                Port = result.Rows[0][2] != null ? int.Parse(result.Rows[0][2]?.ToString() ?? "0") : instance.AssignedPort,
+                TotalSize = result.Rows[0][3] != null ? Convert.ToDecimal(result.Rows[0][3]) / (1024 * 1024) : 0,
+                TableCount = int.Parse(result.Rows[0][4]?.ToString() ?? "0"),
+                CharacterSet = result.Rows[0][5]?.ToString() ?? "UTF8",
+                Collation = result.Rows[0][6]?.ToString() ?? "Unknown"
+            };
+        }
+
         public async Task<List<DatabaseProcess>> GetProcessListAsync(Guid instanceId, Guid userId)
         {
             await ValidateUserAccessAsync(instanceId, userId);
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
+
+            List<DatabaseProcess> processes = engineType switch
+            {
+                DatabaseEngineType.MySQL => await GetMySqlProcessListAsync(instance),
+                DatabaseEngineType.PostgreSQL => await GetPostgresProcessListAsync(instance),
+                _ => throw new BadRequestException("El motor seleccionado no soporta la lista de procesos todavía")
+            };
+
+            await _auditService.LogDatabaseEventAsync(
+                userId,
+                instanceId,
+                AuditAction.DatabaseStatusChanged,
+                $"Process list accessed, Count: {processes.Count}"
+            );
+
+            return processes;
+        }
+
+        private async Task<List<DatabaseProcess>> GetMySqlProcessListAsync(DatabaseInstance instance)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
 
             var query = "SHOW PROCESSLIST";
             var result = await _queryExecutor.ExecuteSafeQueryAsync(connection, query);
@@ -500,12 +676,45 @@ namespace ZenCloud.Services.Implementations
                 });
             }
 
-            await _auditService.LogDatabaseEventAsync(
-                userId,
-                instanceId,
-                AuditAction.DatabaseStatusChanged,
-                $"Process list accessed, Count: {processes.Count}"
-            );
+            return processes;
+        }
+
+        private async Task<List<DatabaseProcess>> GetPostgresProcessListAsync(DatabaseInstance instance)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+
+            var query = @"
+                SELECT 
+                    pid,
+                    usename,
+                    client_addr::text,
+                    datname,
+                    state,
+                    EXTRACT(EPOCH FROM (NOW() - state_change))::int,
+                    wait_event_type,
+                    query
+                FROM pg_stat_activity
+                WHERE datname = @databaseName
+                ORDER BY pid";
+
+            var parameters = new { databaseName = instance.DatabaseName };
+            var result = await ExecutePostgresParameterizedQueryAsync(connection, query, parameters);
+
+            var processes = new List<DatabaseProcess>();
+            foreach (var row in result.Rows)
+            {
+                processes.Add(new DatabaseProcess
+                {
+                    Id = int.Parse(row[0]?.ToString() ?? "0"),
+                    User = row[1]?.ToString() ?? "Unknown",
+                    Host = row[2]?.ToString() ?? "Unknown",
+                    Database = row[3]?.ToString(),
+                    Command = row[4]?.ToString() ?? "Unknown",
+                    Time = int.Parse(row[5]?.ToString() ?? "0"),
+                    State = row[6]?.ToString(),
+                    Info = row[7]?.ToString()
+                });
+            }
 
             return processes;
         }
@@ -518,13 +727,14 @@ namespace ZenCloud.Services.Implementations
                 throw new ArgumentException("ID de proceso inválido");
 
             var instance = await GetDatabaseInstanceAsync(instanceId);
-            using var connection = await _connectionManager.GetConnectionAsync(instance);
+            var engineType = instance.Engine?.EngineName ?? throw new NotFoundException("Motor de base de datos no encontrado");
 
-            var query = "KILL @processId";
-
-            using var command = new MySqlCommand(query, connection);
-            command.Parameters.AddWithValue("@processId", processId);
-            await command.ExecuteNonQueryAsync();
+            bool result = engineType switch
+            {
+                DatabaseEngineType.MySQL => await KillMySqlProcessAsync(instance, processId),
+                DatabaseEngineType.PostgreSQL => await KillPostgresProcessAsync(instance, processId),
+                _ => throw new BadRequestException("El motor seleccionado no soporta la eliminación de procesos todavía")
+            };
 
             await _auditService.LogDatabaseEventAsync(
                 userId,
@@ -533,7 +743,31 @@ namespace ZenCloud.Services.Implementations
                 $"Process killed: {processId}"
             );
 
+            return result;
+        }
+
+        private async Task<bool> KillMySqlProcessAsync(DatabaseInstance instance, int processId)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
+            var query = "KILL @processId";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@processId", processId);
+            await command.ExecuteNonQueryAsync();
+
             return true;
+        }
+
+        private async Task<bool> KillPostgresProcessAsync(DatabaseInstance instance, int processId)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+            var query = "SELECT pg_terminate_backend(@processId)";
+
+            await using var command = new NpgsqlCommand(query, connection);
+            command.Parameters.AddWithValue("@processId", processId);
+            var result = await command.ExecuteScalarAsync();
+
+            return result != null && (bool)result;
         }
 
         public async Task<IReadOnlyList<QueryHistoryItemDto>> GetQueryHistoryAsync(Guid instanceId, Guid userId, int limit = 20)
@@ -601,21 +835,28 @@ namespace ZenCloud.Services.Implementations
                 throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL y PostgreSQL.");
             }
 
-            using var writer = new StreamWriter(outputStream, Encoding.UTF8, leaveOpen: true);
+            var writer = new StreamWriter(outputStream, Encoding.UTF8, leaveOpen: true);
 
-            switch (instance.Engine.EngineName)
+            try
             {
-                case DatabaseEngineType.MySQL:
-                    await ExportMySqlToStreamAsync(instance, writer);
-                    break;
-                case DatabaseEngineType.PostgreSQL:
-                    await ExportPostgreSqlToStreamAsync(instance, writer);
-                    break;
-                default:
-                    throw new ForbiddenException("Motor no soportado para exportación");
-            }
+                switch (instance.Engine.EngineName)
+                {
+                    case DatabaseEngineType.MySQL:
+                        await ExportMySqlToStreamAsync(instance, writer);
+                        break;
+                    case DatabaseEngineType.PostgreSQL:
+                        await ExportPostgreSqlToStreamAsync(instance, writer);
+                        break;
+                    default:
+                        throw new ForbiddenException("Motor no soportado para exportación");
+                }
 
-            await writer.FlushAsync();
+                await writer.FlushAsync();
+            }
+            finally
+            {
+                await writer.FlushAsync();
+            }
         }
 
         private async Task<string> ExportMySqlAsync(DatabaseInstance instance)
@@ -678,6 +919,26 @@ namespace ZenCloud.Services.Implementations
             return tableName.Replace("`", "``");
         }
 
+        private static string EscapePostgresIdentifier(string identifier)
+        {
+            if (string.IsNullOrWhiteSpace(identifier))
+                throw new ArgumentException("Identificador inválido");
+
+            return identifier.Replace("\"", "\"\"");
+        }
+
+        private async Task<QueryResult> ExecuteMySqlQueryAsync(DatabaseInstance instance, string query)
+        {
+            await using var connection = await _connectionManager.GetConnectionAsync(instance);
+            return await _queryExecutor.ExecuteSafeQueryAsync(connection, query);
+        }
+
+        private async Task<QueryResult> ExecutePostgresQueryAsync(DatabaseInstance instance, string query)
+        {
+            await using var connection = await CreatePostgresConnectionAsync(instance);
+            return await _postgresQueryExecutor.ExecuteSafeQueryAsync(connection, query);
+        }
+
         private void ValidateCustomQuerySecurity(string query)
         {
             if (string.IsNullOrWhiteSpace(query))
@@ -702,7 +963,7 @@ namespace ZenCloud.Services.Implementations
                 throw new InvalidOperationException("Solo se permite ejecutar una consulta por vez. Elimina los puntos y coma intermedios para evitar múltiples sentencias.");
         }
 
-        private async Task<QueryResult> ExecuteParameterizedQueryAsync(MySqlConnection connection, string query, object parameters)
+        private async Task<QueryResult> ExecuteMySqlParameterizedQueryAsync(MySqlConnection connection, string query, object parameters)
         {
             var result = new QueryResult();
 
@@ -741,7 +1002,52 @@ namespace ZenCloud.Services.Implementations
             {
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
-                _logger.LogError(ex, "Error executing parameterized query: {Query}", query);
+                _logger.LogError(ex, "Error executing MySQL parameterized query: {Query}", query);
+            }
+
+            return result;
+        }
+
+        private async Task<QueryResult> ExecutePostgresParameterizedQueryAsync(NpgsqlConnection connection, string query, object parameters)
+        {
+            var result = new QueryResult();
+
+            try
+            {
+                await using var command = new NpgsqlCommand(query, connection);
+                command.CommandType = CommandType.Text;
+
+                foreach (var prop in parameters.GetType().GetProperties())
+                {
+                    var paramName = "@" + prop.Name;
+                    var paramValue = prop.GetValue(parameters) ?? DBNull.Value;
+                    command.Parameters.AddWithValue(paramName, paramValue);
+                }
+
+                await using var reader = await command.ExecuteReaderAsync();
+
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    result.Columns.Add(reader.GetName(i));
+                }
+
+                while (await reader.ReadAsync())
+                {
+                    var row = new object[reader.FieldCount];
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                    }
+                    result.Rows.Add(row);
+                }
+
+                result.Success = true;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                _logger.LogError(ex, "Error executing PostgreSQL parameterized query: {Query}", query);
             }
 
             return result;
