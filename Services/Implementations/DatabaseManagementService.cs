@@ -1385,12 +1385,15 @@ namespace ZenCloud.Services.Implementations
                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
                 ORDER BY table_name;";
 
-            await using var tableCommand = new NpgsqlCommand(tableSql, connection);
-            await using var tableReader = await tableCommand.ExecuteReaderAsync();
-            while (await tableReader.ReadAsync())
+            // Read table names first and close the reader
+            await using (var tableCommand = new NpgsqlCommand(tableSql, connection))
             {
-                tables.Add(tableReader.GetString(0));
-            }
+                await using var tableReader = await tableCommand.ExecuteReaderAsync();
+                while (await tableReader.ReadAsync())
+                {
+                    tables.Add(tableReader.GetString(0));
+                }
+            } // Reader is disposed here
 
             foreach (var table in tables)
             {
