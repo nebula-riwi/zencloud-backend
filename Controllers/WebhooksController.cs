@@ -45,10 +45,29 @@ public class WebhooksController : ControllerBase
     [SwaggerOperation(Summary = "Obtener webhooks del usuario", Description = "Retorna todos los webhooks configurados por el usuario autenticado")]
     [SwaggerResponse(200, "Lista de webhooks")]
     [SwaggerResponse(401, "No autenticado")]
-    public Task<IActionResult> GetWebhooks()
+    public async Task<IActionResult> GetWebhooks()
     {
-        // Webhooks deshabilitados temporalmente
-        return Task.FromResult<IActionResult>(Ok(new { data = new List<WebhookResponse>() }));
+        try
+        {
+            var userId = GetCurrentUserId();
+            var webhooks = await _webhookService.GetUserWebhooksAsync(userId);
+            var response = webhooks.Select(w => new WebhookResponse
+            {
+                WebhookId = w.WebhookId,
+                Name = w.Name,
+                WebhookUrl = w.WebhookUrl,
+                EventType = w.EventType.ToString(),
+                IsActive = w.IsActive,
+                CreatedAt = w.CreatedAt,
+                UpdatedAt = w.UpdatedAt
+            });
+            return Ok(new { data = response });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error obteniendo webhooks");
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
     }
 
     /// <summary>
@@ -62,10 +81,29 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(400, "Solicitud inválida")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(422, "Errores de validación")]
-    public Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request)
+    public async Task<IActionResult> CreateWebhook([FromBody] CreateWebhookRequest request)
     {
-        // Webhooks deshabilitados temporalmente
-        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null }));
+        try
+        {
+            var userId = GetCurrentUserId();
+            var webhook = await _webhookService.CreateWebhookAsync(userId, request.Name, request.Url, request.EventType);
+            var response = new WebhookResponse
+            {
+                WebhookId = webhook.WebhookId,
+                Name = webhook.Name,
+                WebhookUrl = webhook.WebhookUrl,
+                EventType = webhook.EventType.ToString(),
+                IsActive = webhook.IsActive,
+                CreatedAt = webhook.CreatedAt,
+                UpdatedAt = webhook.UpdatedAt
+            };
+            return Ok(new { message = "Webhook creado exitosamente", data = response });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creando webhook");
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
     }
 
     /// <summary>
@@ -80,10 +118,37 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(400, "Solicitud inválida")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(404, "Webhook no encontrado")]
-    public Task<IActionResult> UpdateWebhook(Guid id, [FromBody] UpdateWebhookRequest request)
+    public async Task<IActionResult> UpdateWebhook(Guid id, [FromBody] UpdateWebhookRequest request)
     {
-        // Webhooks deshabilitados temporalmente
-        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados", data = (object?)null }));
+        try
+        {
+            var userId = GetCurrentUserId();
+            var webhook = await _webhookService.UpdateWebhookAsync(id, userId, request.Url, request.EventType, request.Active, request.Name);
+            var response = new WebhookResponse
+            {
+                WebhookId = webhook.WebhookId,
+                Name = webhook.Name,
+                WebhookUrl = webhook.WebhookUrl,
+                EventType = webhook.EventType.ToString(),
+                IsActive = webhook.IsActive,
+                CreatedAt = webhook.CreatedAt,
+                UpdatedAt = webhook.UpdatedAt
+            };
+            return Ok(new { message = "Webhook actualizado exitosamente", data = response });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = "Webhook no encontrado" });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { message = "No tienes permisos para modificar este webhook" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error actualizando webhook");
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
     }
 
     /// <summary>
@@ -96,10 +161,27 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(200, "Webhook eliminado exitosamente")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(404, "Webhook no encontrado")]
-    public Task<IActionResult> DeleteWebhook(Guid id)
+    public async Task<IActionResult> DeleteWebhook(Guid id)
     {
-        // Webhooks deshabilitados temporalmente
-        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados" }));
+        try
+        {
+            var userId = GetCurrentUserId();
+            var result = await _webhookService.DeleteWebhookAsync(id, userId);
+            if (!result)
+            {
+                return NotFound(new { message = "Webhook no encontrado" });
+            }
+            return Ok(new { message = "Webhook eliminado exitosamente" });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized(new { message = "No tienes permisos para eliminar este webhook" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error eliminando webhook");
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
     }
 
     /// <summary>
@@ -112,9 +194,32 @@ public class WebhooksController : ControllerBase
     [SwaggerResponse(200, "Prueba enviada exitosamente")]
     [SwaggerResponse(401, "No autenticado")]
     [SwaggerResponse(404, "Webhook no encontrado")]
-    public Task<IActionResult> TestWebhook(Guid id)
+    public async Task<IActionResult> TestWebhook(Guid id)
     {
-        // Webhooks deshabilitados temporalmente
-        return Task.FromResult<IActionResult>(Ok(new { message = "Webhooks temporalmente deshabilitados" }));
+        try
+        {
+            var userId = GetCurrentUserId();
+            var webhook = await _webhookService.GetWebhookByIdAsync(id);
+            if (webhook == null || webhook.UserId != userId)
+            {
+                return NotFound(new { message = "Webhook no encontrado" });
+            }
+            
+            // Enviar evento de prueba
+            await _webhookService.TriggerWebhookAsync(webhook.EventType, new
+            {
+                eventType = webhook.EventType.ToString(),
+                message = "Este es un evento de prueba desde ZenCloud",
+                timestamp = DateTime.UtcNow,
+                test = true
+            }, userId);
+            
+            return Ok(new { message = "Evento de prueba enviado exitosamente" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error probando webhook");
+            return StatusCode(500, new { message = "Error enviando prueba" });
+        }
     }
 }
