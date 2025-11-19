@@ -785,7 +785,9 @@ namespace ZenCloud.Services.Implementations
                     RowCount = entry.RowCount,
                     ExecutionTimeMs = entry.ExecutionTimeMs,
                     Error = entry.ErrorMessage,
-                    ExecutedAt = entry.ExecutedAt
+                    ExecutedAt = entry.ExecutedAt,
+                    DatabaseName = entry.Instance?.DatabaseName,
+                    EngineType = entry.EngineType?.ToString()
                 })
                 .ToList();
         }
