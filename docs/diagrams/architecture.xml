@@ -1,0 +1,142 @@
+<mxfile host="app.diagrams.net" modified="2025-01-19T21:00:00.000Z">
+  <diagram name="Arquitectura ZenCloud" id="arquitectura">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Cliente -->
+        <mxCell id="client" value="Cliente Web&#xa;(Vue.js 3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="400" y="40" width="160" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- API Gateway -->
+        <mxCell id="api" value="API REST&#xa;(ASP.NET Core 8.0)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="400" y="180" width="160" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Controllers Layer -->
+        <mxCell id="controllers" value="Controllers" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="400" y="300" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- Services Layer -->
+        <mxCell id="services" value="Services" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="400" y="360" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- Repositories Layer -->
+        <mxCell id="repos" value="Repositories" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450" vertex="1" parent="1">
+          <mxGeometry x="400" y="420" width="160" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- Base de Datos Principal -->
+        <mxCell id="maindb" value="PostgreSQL 18&#xa;(BD Principal)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="240" y="520" width="120" height="100" as="geometry" />
+        </mxCell>
+        
+        <!-- MySQL -->
+        <mxCell id="mysql" value="MySQL 8.0" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#b1ddf0;strokeColor=#10739e" vertex="1" parent="1">
+          <mxGeometry x="400" y="540" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- PostgreSQL Users -->
+        <mxCell id="postgres" value="PostgreSQL 16" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#b1ddf0;strokeColor=#10739e" vertex="1" parent="1">
+          <mxGeometry x="500" y="540" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- SQL Server -->
+        <mxCell id="sqlserver" value="SQL Server&#xa;Express 2022" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#b1ddf0;strokeColor=#10739e" vertex="1" parent="1">
+          <mxGeometry x="600" y="540" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- MongoDB -->
+        <mxCell id="mongo" value="MongoDB 8" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fad9d5;strokeColor=#ae4132" vertex="1" parent="1">
+          <mxGeometry x="700" y="540" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Redis -->
+        <mxCell id="redis" value="Redis 7" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fad9d5;strokeColor=#ae4132" vertex="1" parent="1">
+          <mxGeometry x="800" y="540" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- Cassandra -->
+        <mxCell id="cassandra" value="Cassandra 4.1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fad9d5;strokeColor=#ae4132" vertex="1" parent="1">
+          <mxGeometry x="900" y="540" width="80" height="80" as="geometry" />
+        </mxCell>
+        
+        <!-- External Services -->
+        <mxCell id="smtp" value="SMTP&#xa;Email Service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d0cee2;strokeColor=#56517e" vertex="1" parent="1">
+          <mxGeometry x="80" y="180" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="webhook" value="Discord&#xa;Webhook" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d0cee2;strokeColor=#56517e" vertex="1" parent="1">
+          <mxGeometry x="80" y="260" width="120" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Connections -->
+        <mxCell id="conn1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2" edge="1" parent="1" source="client" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2" edge="1" parent="1" source="api" target="controllers">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2" edge="1" parent="1" source="controllers" target="services">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2" edge="1" parent="1" source="services" target="repos">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- DB Connections -->
+        <mxCell id="conn5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#9673a6" edge="1" parent="1" source="repos" target="maindb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#10739e" edge="1" parent="1" source="repos" target="mysql">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#10739e" edge="1" parent="1" source="repos" target="postgres">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#10739e" edge="1" parent="1" source="repos" target="sqlserver">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ae4132" edge="1" parent="1" source="repos" target="mongo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ae4132" edge="1" parent="1" source="repos" target="redis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ae4132" edge="1" parent="1" source="repos" target="cassandra">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- External Service Connections -->
+        <mxCell id="conn12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#56517e;dashed=1" edge="1" parent="1" source="services" target="smtp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="conn13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#56517e;dashed=1" edge="1" parent="1" source="services" target="webhook">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- Legend -->
+        <mxCell id="legend" value="Leyenda" style="swimlane;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="80" y="360" width="200" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1" value="SQL Databases" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#b1ddf0;strokeColor=#10739e;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="10" y="30" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2" value="NoSQL Databases" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fad9d5;strokeColor=#ae4132;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="90" y="30" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3" value="Main System DB" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="10" y="90" width="60" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4" value="External Services" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d0cee2;strokeColor=#56517e;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="90" y="90" width="100" height="40" as="geometry" />
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

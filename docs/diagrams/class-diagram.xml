@@ -1,0 +1,190 @@
+<mxfile host="app.diagrams.net" modified="2025-01-19T21:00:00.000Z">
+  <diagram name="Diagrama de Clases" id="class-diagram">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1200">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Controllers -->
+        <mxCell id="auth-controller" value="«Controller»&#xa;AuthController" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#dae8fc;strokeColor=#6c8ebf" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="200" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-controller-attrs" value="- _authService: IAuthService&#xa;- _userService: IUserService&#xa;- _logger: ILogger" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="auth-controller">
+          <mxGeometry y="40" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-controller-line" value="" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;" vertex="1" parent="auth-controller">
+          <mxGeometry y="100" width="200" height="8" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-controller-methods" value="+ Login()&#xa;+ Register()&#xa;+ RefreshToken()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="auth-controller">
+          <mxGeometry y="108" width="200" height="32" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="db-controller" value="«Controller»&#xa;DatabaseInstanceController" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#d5e8d4;strokeColor=#82b366" vertex="1" parent="1">
+          <mxGeometry x="320" y="60" width="240" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="db-controller-attrs" value="- _dbInstanceService: IDbInstanceService&#xa;- _auditService: IAuditService&#xa;- _logger: ILogger" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="db-controller">
+          <mxGeometry y="40" width="240" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="db-controller-line" value="" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;" vertex="1" parent="db-controller">
+          <mxGeometry y="100" width="240" height="8" as="geometry" />
+        </mxCell>
+        <mxCell id="db-controller-methods" value="+ CreateDatabase()&#xa;+ GetAllDatabases()&#xa;+ DeleteDatabase()&#xa;+ ExportDatabase()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="db-controller">
+          <mxGeometry y="108" width="240" height="52" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="dbmgr-controller" value="«Controller»&#xa;DatabaseManagerController" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#fff2cc;strokeColor=#d6b656" vertex="1" parent="1">
+          <mxGeometry x="600" y="60" width="220" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="dbmgr-controller-attrs" value="- _dbManagementService: IDbManagementService&#xa;- _logger: ILogger" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="dbmgr-controller">
+          <mxGeometry y="40" width="220" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="dbmgr-controller-line" value="" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;" vertex="1" parent="dbmgr-controller">
+          <mxGeometry y="80" width="220" height="8" as="geometry" />
+        </mxCell>
+        <mxCell id="dbmgr-controller-methods" value="+ GetTables()&#xa;+ ExecuteQuery()&#xa;+ GetQueryHistory()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="dbmgr-controller">
+          <mxGeometry y="88" width="220" height="52" as="geometry" />
+        </mxCell>
+        
+        <!-- Services -->
+        <mxCell id="auth-service" value="«Interface»&#xa;IAuthService" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="80" y="300" width="200" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-service-methods" value="+ LoginAsync()&#xa;+ RegisterAsync()&#xa;+ RefreshTokenAsync()&#xa;+ GenerateJwtToken()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="auth-service">
+          <mxGeometry y="40" width="200" height="80" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="dbinstance-service" value="«Interface»&#xa;IDatabaseInstanceService" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="320" y="300" width="240" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="dbinstance-service-methods" value="+ CreateDatabaseInstanceAsync()&#xa;+ GetAllDatabaseInstancesAsync()&#xa;+ DeleteDatabaseInstanceAsync()&#xa;+ ActivateDatabaseAsync()&#xa;+ DeactivateDatabaseAsync()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="dbinstance-service">
+          <mxGeometry y="40" width="240" height="100" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="dbmanagement-service" value="«Interface»&#xa;IDatabaseManagementService" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="600" y="300" width="220" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="dbmanagement-service-methods" value="+ ExecuteQueryAsync()&#xa;+ GetTablesAsync()&#xa;+ GetTableSchemaAsync()&#xa;+ ExportDatabaseAsync()&#xa;+ GetQueryHistoryAsync()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="dbmanagement-service">
+          <mxGeometry y="40" width="220" height="100" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="encryption-service" value="«Interface»&#xa;IEncryptionService" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#ffe6cc;strokeColor=#d79b00" vertex="1" parent="1">
+          <mxGeometry x="860" y="300" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="encryption-service-methods" value="+ Encrypt(string data)&#xa;+ Decrypt(string data)&#xa;+ HashPassword()" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="encryption-service">
+          <mxGeometry y="40" width="180" height="60" as="geometry" />
+        </mxCell>
+        
+        <!-- Models/Entities -->
+        <mxCell id="user-entity" value="«Entity»&#xa;User" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="80" y="540" width="160" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="user-entity-attrs" value="+ UserId: Guid&#xa;+ Email: string&#xa;+ PasswordHash: string&#xa;+ FullName: string&#xa;+ Role: string&#xa;+ IsActive: bool&#xa;+ CreatedAt: DateTime&#xa;+ UpdatedAt: DateTime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="user-entity">
+          <mxGeometry y="40" width="160" height="160" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="dbinstance-entity" value="«Entity»&#xa;DatabaseInstance" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="280" y="540" width="200" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="dbinstance-entity-attrs" value="+ InstanceId: Guid&#xa;+ UserId: Guid&#xa;+ EngineId: Guid&#xa;+ DatabaseName: string&#xa;+ DatabaseUser: string&#xa;+ DatabasePasswordHash: string&#xa;+ ServerIpAddress: string&#xa;+ AssignedPort: int&#xa;+ Status: string&#xa;+ ConnectionString: string&#xa;+ CreatedAt: DateTime&#xa;+ UpdatedAt: DateTime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="dbinstance-entity">
+          <mxGeometry y="40" width="200" height="220" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="engine-entity" value="«Entity»&#xa;DatabaseEngine" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="520" y="540" width="180" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="engine-entity-attrs" value="+ EngineId: Guid&#xa;+ EngineName: string&#xa;+ EngineType: string&#xa;+ Version: string&#xa;+ IsActive: bool&#xa;+ DefaultPort: int&#xa;+ IconUrl: string&#xa;+ CreatedAt: DateTime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="engine-entity">
+          <mxGeometry y="40" width="180" height="160" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="audit-entity" value="«Entity»&#xa;AuditLog" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="740" y="540" width="180" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="audit-entity-attrs" value="+ AuditId: Guid&#xa;+ UserId: Guid&#xa;+ Action: string&#xa;+ EntityType: string&#xa;+ EntityId: Guid&#xa;+ OldValue: string&#xa;+ NewValue: string&#xa;+ IpAddress: string&#xa;+ UserAgent: string&#xa;+ CreatedAt: DateTime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="audit-entity">
+          <mxGeometry y="40" width="180" height="180" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="query-history-entity" value="«Entity»&#xa;DatabaseQueryHistory" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;fillColor=#e1d5e7;strokeColor=#9673a6" vertex="1" parent="1">
+          <mxGeometry x="960" y="540" width="200" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="query-history-entity-attrs" value="+ QueryHistoryId: Guid&#xa;+ UserId: Guid&#xa;+ InstanceId: Guid&#xa;+ QueryText: string&#xa;+ ExecutionTimeMs: int&#xa;+ RowCount: int&#xa;+ IsSuccess: bool&#xa;+ ErrorMessage: string&#xa;+ EngineType: string&#xa;+ ExecutedAt: DateTime" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacingLeft=4;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" vertex="1" parent="query-history-entity">
+          <mxGeometry y="40" width="200" height="180" as="geometry" />
+        </mxCell>
+        
+        <!-- Relationships -->
+        <mxCell id="rel1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;dashed=1;endArrow=open;endFill=0" edge="1" parent="1" source="auth-controller" target="auth-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel1-label" value="uses" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=2" vertex="1" connectable="0" parent="rel1">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="rel2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;dashed=1;endArrow=open;endFill=0" edge="1" parent="1" source="db-controller" target="dbinstance-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel2-label" value="uses" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=2" vertex="1" connectable="0" parent="rel2">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="rel3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;dashed=1;endArrow=open;endFill=0" edge="1" parent="1" source="dbmgr-controller" target="dbmanagement-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel3-label" value="uses" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=2" vertex="1" connectable="0" parent="rel3">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="rel4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;endArrow=diamondThin;endFill=1" edge="1" parent="1" source="auth-service" target="user-entity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel4-label" value="manages" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=2" vertex="1" connectable="0" parent="rel4">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="rel5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;endArrow=diamondThin;endFill=1" edge="1" parent="1" source="dbinstance-service" target="dbinstance-entity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel5-label" value="manages" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=2" vertex="1" connectable="0" parent="rel5">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="rel6" style="edgeStyle=none;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;endArrow=none;endFill=0;startArrow=diamondThin;startFill=0" edge="1" parent="1" source="dbinstance-entity-attrs" target="user-entity-attrs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel6-label" value="1" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" vertex="1" connectable="0" parent="rel6">
+          <mxGeometry x="0.8" y="-1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rel6-label2" value="*" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" vertex="1" connectable="0" parent="rel6">
+          <mxGeometry x="-0.8" y="-1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="rel7" style="edgeStyle=none;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;endArrow=none;endFill=0;startArrow=diamondThin;startFill=0" edge="1" parent="1" source="dbinstance-entity-attrs" target="engine-entity-attrs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel7-label" value="1" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" vertex="1" connectable="0" parent="rel7">
+          <mxGeometry x="0.8" y="-1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rel7-label2" value="*" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" vertex="1" connectable="0" parent="rel7">
+          <mxGeometry x="-0.8" y="-1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
