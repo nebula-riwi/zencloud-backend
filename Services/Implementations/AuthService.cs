@@ -17,8 +17,9 @@ public class AuthService : IAuthService
     private readonly IJwtService _jwtService;
     private readonly IEmailVerificationService _emailVerificationService;
     private readonly ILogger<AuthService> _logger;
+    private readonly IWebhookService _webhookService;
 
-    public AuthService(PgDbContext dbContext, PasswordHasher passwordHasher, IEmailService emailService, IJwtService jwtService, IEmailVerificationService emailVerificationService, ILogger<AuthService> logger) 
+    public AuthService(PgDbContext dbContext, PasswordHasher passwordHasher, IEmailService emailService, IJwtService jwtService, IEmailVerificationService emailVerificationService, ILogger<AuthService> logger, IWebhookService webhookService) 
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
@@ -26,6 +27,7 @@ public class AuthService : IAuthService
         _jwtService = jwtService;
         _emailVerificationService = emailVerificationService;
         _logger = logger;
+        _webhookService = webhookService;
     }
 
     public async Task<bool> RegisterAsync(RegisterRequest model)
@@ -141,6 +143,26 @@ public class AuthService : IAuthService
 
             user.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
+
+            // Trigger webhook para user login
+            try
+            {
+                await _webhookService.TriggerWebhookAsync(
+                    WebhookEventType.UserLogin,
+                    new
+                    {
+                        userId = user.UserId,
+                        email = user.Email,
+                        fullName = user.FullName,
+                        loginAt = user.UpdatedAt
+                    },
+                    user.UserId
+                );
+            }
+            catch (Exception webhookEx)
+            {
+                _logger.LogWarning(webhookEx, "Error disparando webhook para UserLogin");
+            }
 
             string token = _jwtService.GenerateToken(user);
             return token;

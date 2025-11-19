@@ -50,10 +50,11 @@ public class SubscriptionLifecycleService : BackgroundService
         var databaseRepository = scope.ServiceProvider.GetRequiredService<IDatabaseInstanceRepository>();
         var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
         var mercadoPagoService = scope.ServiceProvider.GetRequiredService<MercadoPagoService>();
+        var webhookService = scope.ServiceProvider.GetRequiredService<IWebhookService>();
 
         await HandleExpiringSubscriptionsAsync(subscriptionRepository, emailService);
-        await HandleAutoRenewalsAsync(subscriptionRepository, mercadoPagoService);
-        await HandleExpiredSubscriptionsAsync(subscriptionRepository, databaseRepository, emailService);
+        await HandleAutoRenewalsAsync(subscriptionRepository, mercadoPagoService, webhookService);
+        await HandleExpiredSubscriptionsAsync(subscriptionRepository, databaseRepository, emailService, webhookService);
     }
 
     private async Task HandleExpiringSubscriptionsAsync(ISubscriptionRepository repository, IEmailService emailService)
@@ -117,7 +118,8 @@ public class SubscriptionLifecycleService : BackgroundService
     private async Task HandleExpiredSubscriptionsAsync(
         ISubscriptionRepository subscriptionRepository,
         IDatabaseInstanceRepository databaseRepository,
-        IEmailService emailService)
+        IEmailService emailService,
+        IWebhookService webhookService)
     {
         const int batchSize = 50; // Procesar en lotes de 50 suscripciones
         
@@ -186,6 +188,27 @@ public class SubscriptionLifecycleService : BackgroundService
                 {
                     _logger.LogWarning(ex, "No se pudo enviar el correo de expiración para {UserId}", subscription.UserId);
                 }
+
+                // Trigger webhook para subscription expired
+                try
+                {
+                    await webhookService.TriggerWebhookAsync(
+                        WebhookEventType.SubscriptionExpired,
+                        new
+                        {
+                            subscriptionId = subscription.SubscriptionId,
+                            planName = subscription.Plan.PlanName.ToString(),
+                            endDate = subscription.EndDate,
+                            expiredAt = DateTime.UtcNow,
+                            databasesDeactivated = databasesToDeactivate.Count
+                        },
+                        subscription.UserId
+                    );
+                }
+                catch (Exception webhookEx)
+                {
+                    _logger.LogWarning(webhookEx, "Error disparando webhook para SubscriptionExpired");
+                }
             }
             
             processed += expiredSubscriptions.Count();
@@ -193,7 +216,7 @@ public class SubscriptionLifecycleService : BackgroundService
         }
     }
 
-    private async Task HandleAutoRenewalsAsync(ISubscriptionRepository repository, MercadoPagoService mercadoPagoService)
+    private async Task HandleAutoRenewalsAsync(ISubscriptionRepository repository, MercadoPagoService mercadoPagoService, IWebhookService webhookService)
     {
         const int batchSize = 50; // Procesar en lotes de 50 suscripciones
         
@@ -222,6 +245,26 @@ public class SubscriptionLifecycleService : BackgroundService
                 {
                     subscription.LastAutoRenewError = ex.Message;
                     _logger.LogError(ex, "Error intentando auto-renovar la suscripción {SubscriptionId}", subscription.SubscriptionId);
+
+                    // Trigger webhook para payment failed en auto-renovación
+                    try
+                    {
+                        await webhookService.TriggerWebhookAsync(
+                            WebhookEventType.PaymentFailed,
+                            new
+                            {
+                                subscriptionId = subscription.SubscriptionId,
+                                planName = subscription.Plan?.PlanName.ToString(),
+                                attemptDate = DateTime.UtcNow,
+                                errorMessage = ex.Message
+                            },
+                            subscription.UserId
+                        );
+                    }
+                    catch (Exception webhookEx)
+                    {
+                        _logger.LogWarning(webhookEx, "Error disparando webhook para PaymentFailed");
+                    }
                 }
                 finally
                 {
