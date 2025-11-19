@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using Npgsql;
+using Microsoft.Data.SqlClient;
 using System.Data;
 using System.Diagnostics;
 using System.Globalization;
@@ -28,6 +29,7 @@ namespace ZenCloud.Services.Implementations
         private readonly ILogger<DatabaseManagementService> _logger;
         private readonly IDatabaseQueryHistoryRepository _queryHistoryRepository;
         private readonly IPostgresQueryExecutor _postgresQueryExecutor;
+        private readonly ISQLServerQueryExecutor _sqlServerQueryExecutor;
 
         private readonly Regex _validIdentifierRegex = new Regex("^[a-zA-Z_][a-zA-Z0-9_]{0,63}$", RegexOptions.Compiled);
 
@@ -42,6 +44,7 @@ namespace ZenCloud.Services.Implementations
             IQueryExecutor queryExecutor,
             IAuditService auditService,
             IPostgresQueryExecutor postgresQueryExecutor,
+            ISQLServerQueryExecutor sqlServerQueryExecutor,
             IEncryptionService encryptionService,
             PgDbContext context,
             ILogger<DatabaseManagementService> logger,
@@ -51,6 +54,7 @@ namespace ZenCloud.Services.Implementations
             _queryExecutor = queryExecutor;
             _auditService = auditService;
             _postgresQueryExecutor = postgresQueryExecutor;
+            _sqlServerQueryExecutor = sqlServerQueryExecutor;
             _encryptionService = encryptionService;
             _context = context;
             _logger = logger;
@@ -80,6 +84,7 @@ namespace ZenCloud.Services.Implementations
                 {
                     DatabaseEngineType.MySQL => await ExecuteMySqlQueryAsync(instance, query),
                     DatabaseEngineType.PostgreSQL => await ExecutePostgresQueryAsync(instance, query),
+                    DatabaseEngineType.SQLServer => await ExecuteSQLServerQueryAsync(instance, query),
                     _ => throw new BadRequestException($"El motor {engineType} no soporta el editor SQL todavía")
                 };
 
@@ -802,11 +807,12 @@ namespace ZenCloud.Services.Implementations
                 throw new NotFoundException("Motor de base de datos no encontrado");
             }
 
-            // Solo permitir exportación de MySQL y PostgreSQL
+            // Solo permitir exportación de motores relacionales
             if (instance.Engine.EngineName != DatabaseEngineType.MySQL && 
-                instance.Engine.EngineName != DatabaseEngineType.PostgreSQL)
+                instance.Engine.EngineName != DatabaseEngineType.PostgreSQL &&
+                instance.Engine.EngineName != DatabaseEngineType.SQLServer)
             {
-                throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL y PostgreSQL.");
+                throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL, PostgreSQL y SQL Server.");
             }
 
             // Use MemoryStream for backward compatibility
@@ -830,11 +836,12 @@ namespace ZenCloud.Services.Implementations
                 throw new NotFoundException("Motor de base de datos no encontrado");
             }
 
-            // Solo permitir exportación de MySQL y PostgreSQL
+            // Solo permitir exportación de motores relacionales
             if (instance.Engine.EngineName != DatabaseEngineType.MySQL && 
-                instance.Engine.EngineName != DatabaseEngineType.PostgreSQL)
+                instance.Engine.EngineName != DatabaseEngineType.PostgreSQL &&
+                instance.Engine.EngineName != DatabaseEngineType.SQLServer)
             {
-                throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL y PostgreSQL.");
+                throw new ForbiddenException($"La exportación no está disponible para el motor {instance.Engine.EngineName}. Solo está disponible para MySQL, PostgreSQL y SQL Server.");
             }
 
             var writer = new StreamWriter(outputStream, Encoding.UTF8, leaveOpen: true);
@@ -848,6 +855,9 @@ namespace ZenCloud.Services.Implementations
                         break;
                     case DatabaseEngineType.PostgreSQL:
                         await ExportPostgreSqlToStreamAsync(instance, writer);
+                        break;
+                    case DatabaseEngineType.SQLServer:
+                        await ExportSQLServerToStreamAsync(instance, writer);
                         break;
                     default:
                         throw new ForbiddenException("Motor no soportado para exportación");
@@ -939,6 +949,12 @@ namespace ZenCloud.Services.Implementations
         {
             await using var connection = await CreatePostgresConnectionAsync(instance);
             return await _postgresQueryExecutor.ExecuteSafeQueryAsync(connection, query);
+        }
+
+        private async Task<QueryResult> ExecuteSQLServerQueryAsync(DatabaseInstance instance, string query)
+        {
+            await using var connection = await CreateSQLServerConnectionAsync(instance);
+            return await _sqlServerQueryExecutor.ExecuteSafeQueryAsync(connection, query);
         }
 
         private void ValidateCustomQuerySecurity(string query)
@@ -1137,6 +1153,29 @@ namespace ZenCloud.Services.Implementations
             };
 
             var connection = new NpgsqlConnection(connectionBuilder.ConnectionString);
+            await connection.OpenAsync();
+            return connection;
+        }
+
+        private async Task<SqlConnection> CreateSQLServerConnectionAsync(DatabaseInstance instance)
+        {
+            var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+            decryptedPassword = decryptedPassword.Replace("\0", string.Empty);
+
+            var connectionBuilder = new SqlConnectionStringBuilder
+            {
+                DataSource = $"{(string.IsNullOrWhiteSpace(instance.ServerIpAddress) ? "127.0.0.1" : instance.ServerIpAddress)},{(instance.AssignedPort > 0 ? instance.AssignedPort : 1433)}",
+                InitialCatalog = instance.DatabaseName,
+                UserID = instance.DatabaseUser,
+                Password = decryptedPassword,
+                ConnectTimeout = 30,
+                TrustServerCertificate = true,
+                Pooling = true,
+                MaxPoolSize = 10,
+                MinPoolSize = 0
+            };
+
+            var connection = new SqlConnection(connectionBuilder.ConnectionString);
             await connection.OpenAsync();
             return connection;
         }
@@ -1586,6 +1625,86 @@ namespace ZenCloud.Services.Implementations
                 });
             }
             return columns;
+        }
+
+        private async Task ExportSQLServerToStreamAsync(DatabaseInstance instance, StreamWriter writer)
+        {
+            await using var connection = await CreateSQLServerConnectionAsync(instance);
+            
+            await writer.WriteLineAsync("-- ZenCloud SQL Export (SQL Server)");
+            await writer.WriteLineAsync($"-- Database: [{instance.DatabaseName}]");
+            await writer.WriteLineAsync($"-- Generated at: {DateTime.UtcNow:O}");
+            await writer.WriteLineAsync("SET NOCOUNT ON;");
+            await writer.WriteLineAsync("GO");
+            await writer.WriteLineAsync();
+            
+            // Exportar estructura de tablas
+            var tablesQuery = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = 'dbo'";
+            await using var tablesCmd = new SqlCommand(tablesQuery, connection);
+            await using var tablesReader = await tablesCmd.ExecuteReaderAsync();
+            
+            var tableNames = new List<string>();
+            while (await tablesReader.ReadAsync())
+            {
+                tableNames.Add(tablesReader.GetString(0));
+            }
+            await tablesReader.CloseAsync();
+            
+            foreach (var tableName in tableNames)
+            {
+                // Obtener CREATE TABLE
+                var createTableQuery = $@"
+                    SELECT 
+                        'CREATE TABLE [' + t.name + '] (' + STUFF((
+                            SELECT ', [' + c.name + '] ' + 
+                                   ty.name + 
+                                   CASE WHEN ty.name IN ('varchar', 'char', 'nvarchar', 'nchar') THEN '(' + CAST(c.max_length AS VARCHAR) + ')' ELSE '' END +
+                                   CASE WHEN c.is_nullable = 0 THEN ' NOT NULL' ELSE ' NULL' END
+                            FROM sys.columns c
+                            INNER JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+                            WHERE c.object_id = t.object_id
+                            FOR XML PATH('')
+                        ), 1, 2, '') + ');'
+                    FROM sys.tables t
+                    WHERE t.name = '{tableName}'";
+                
+                await using var createCmd = new SqlCommand(createTableQuery, connection);
+                var createTableScript = await createCmd.ExecuteScalarAsync() as string;
+                
+                if (!string.IsNullOrEmpty(createTableScript))
+                {
+                    await writer.WriteLineAsync($"-- Table: [{tableName}]");
+                    await writer.WriteLineAsync(createTableScript);
+                    await writer.WriteLineAsync("GO");
+                    await writer.WriteLineAsync();
+                }
+                
+                // Exportar datos
+                var dataQuery = $"SELECT * FROM [{tableName}]";
+                await using var dataCmd = new SqlCommand(dataQuery, connection);
+                await using var dataReader = await dataCmd.ExecuteReaderAsync();
+                
+                if (dataReader.HasRows)
+                {
+                    while (await dataReader.ReadAsync())
+                    {
+                        var values = new List<string>();
+                        for (int i = 0; i < dataReader.FieldCount; i++)
+                        {
+                            var value = dataReader.IsDBNull(i) ? "NULL" : $"'{dataReader.GetValue(i).ToString()?.Replace("'", "''")}'";
+                            values.Add(value);
+                        }
+                        
+                        var columns = string.Join(", ", Enumerable.Range(0, dataReader.FieldCount).Select(i => $"[{dataReader.GetName(i)}]"));
+                        await writer.WriteLineAsync($"INSERT INTO [{tableName}] ({columns}) VALUES ({string.Join(", ", values)});");
+                    }
+                    await writer.WriteLineAsync("GO");
+                    await writer.WriteLineAsync();
+                }
+            }
+            
+            await writer.WriteLineAsync("-- Export completed");
+            await writer.FlushAsync();
         }
 
         #endregion

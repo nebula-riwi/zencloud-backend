@@ -48,6 +48,8 @@ services:
       - postgres-ZenDb
       - mongo-ZenDb
       - redis-ZenDb
+      - sqlserver-ZenDb
+      - cassandra-ZenDb
 
   # 🐘 PostgreSQL Principal (Base de datos del sistema)
   some-postgres:
@@ -171,7 +173,55 @@ services:
     volumes:
       - redis_data:/data
 
-  # 🔥 N8N - AUTOMATION PLATFORM
+  # SQL Server Express (GRATIS - Límite 10GB por DB) - RECURSOS MÍNIMOS
+  sqlserver-ZenDb:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver-ZenDb
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    ports:
+      - "1433:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${SQLSERVER_ADMIN_PASSWORD:-YourStrong@Passw0rd123}
+      - MSSQL_PID=Express
+      - MSSQL_MEMORY_LIMIT_MB=768
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+  # Cassandra (NoSQL) - RECURSOS ULTRA MÍNIMOS
+  cassandra-ZenDb:
+    image: cassandra:4.1
+    container_name: cassandra-ZenDb
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 768M
+        reservations:
+          cpus: '0.25'
+          memory: 384M
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ZenCloudCluster
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_RACK=rack1
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=128M
+      - JVM_OPTS=-Xms256M -Xmx512M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  # n8n - Automatización
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n-ZenCloud
@@ -204,4 +254,6 @@ volumes:
     name: 7b16e4305a683cf92961802a9c47e48da519685bc3573254e970b0416298f443
   mongo_data:
   redis_data:
+  sqlserver_data:
+  cassandra_data:
   n8n_data:
