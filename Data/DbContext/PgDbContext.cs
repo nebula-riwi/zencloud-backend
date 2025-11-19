@@ -447,7 +447,7 @@ public class PgDbContext : Microsoft.EntityFrameworkCore.DbContext
             entity.HasOne(wl => wl.WebhookConfiguration)
                 .WithMany(wc => wc.WebhookLogs)
                 .HasForeignKey(wl => wl.WebhookId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

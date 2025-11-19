@@ -83,19 +83,32 @@ public class WebhookService : IWebhookService, IDisposable
 
     public async Task<bool> DeleteWebhookAsync(Guid webhookId, Guid userId)
     {
-        var webhook = await _webhookRepository.GetByIdAsync(webhookId);
-        if (webhook == null)
+        try
         {
-            return false;
-        }
+            var webhook = await _webhookRepository.GetByIdAsync(webhookId);
+            if (webhook == null)
+            {
+                return false;
+            }
 
-        if (webhook.UserId != userId)
+            if (webhook.UserId != userId)
+            {
+                throw new UnauthorizedAccessException("No tienes permisos para eliminar este webhook");
+            }
+
+            await _webhookRepository.DeleteAsync(webhook);
+            _logger.LogInformation("Webhook {WebhookId} eliminado correctamente", webhookId);
+            return true;
+        }
+        catch (UnauthorizedAccessException)
         {
-            throw new UnauthorizedAccessException("No tienes permisos para eliminar este webhook");
+            throw;
         }
-
-        await _webhookRepository.DeleteAsync(webhook);
-        return true;
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error eliminando webhook {WebhookId}", webhookId);
+            throw;
+        }
     }
 
     public async Task TriggerWebhookAsync(WebhookEventType eventType, object payload, Guid? userId = null)
@@ -227,26 +240,8 @@ public class WebhookService : IWebhookService, IDisposable
         // Obtener título y descripción según el evento
         var (title, description) = GetEventTitleAndDescription(eventType, payload);
 
-        // Construir los fields del embed
-        var fields = new List<object>();
-        foreach (var kvp in payload)
-        {
-            if (kvp.Key == "timestamp" || kvp.Key.EndsWith("At")) continue; // Skip timestamps
-            
-            var value = kvp.Value.ValueKind == JsonValueKind.String 
-                ? kvp.Value.GetString() 
-                : kvp.Value.ToString();
-            
-            if (!string.IsNullOrEmpty(value) && value.Length < 1000)
-            {
-                fields.Add(new
-                {
-                    name = FormatFieldName(kvp.Key),
-                    value = $"`{value}`",
-                    inline = true
-                });
-            }
-        }
+        // Construir los fields del embed (solo los más importantes)
+        var fields = GetRelevantFields(eventType, payload);
 
         var discordPayload = new
         {
@@ -254,14 +249,22 @@ public class WebhookService : IWebhookService, IDisposable
             {
                 new
                 {
-                    title = $"🔔 {title}",
+                    author = new
+                    {
+                        name = "ZenCloud Database Platform",
+                        icon_url = "https://nebula.andrescortes.dev/favicon.svg"
+                    },
+                    title = GetEventEmoji(eventType) + " " + title,
                     description = description,
                     color = color,
-                    fields = fields.Take(10).ToArray(), // Máximo 10 campos
+                    fields = fields.ToArray(),
+                    thumbnail = new
+                    {
+                        url = "https://nebula.andrescortes.dev/favicon.svg"
+                    },
                     footer = new
                     {
-                        text = "ZenCloud · Database Platform",
-                        icon_url = "https://nebula.andrescortes.dev/logo.png"
+                        text = "ZenCloud"
                     },
                     timestamp = DateTime.UtcNow.ToString("o")
                 }
@@ -326,6 +329,85 @@ public class WebhookService : IWebhookService, IDisposable
         // Convertir camelCase a Title Case con espacios
         var result = System.Text.RegularExpressions.Regex.Replace(fieldName, "([a-z])([A-Z])", "$1 $2");
         return char.ToUpper(result[0]) + result.Substring(1);
+    }
+
+    private string GetEventEmoji(WebhookEventType eventType)
+    {
+        return eventType switch
+        {
+            WebhookEventType.DatabaseCreated => "✅",
+            WebhookEventType.DatabaseDeleted => "🗑️",
+            WebhookEventType.DatabaseStatusChanged => "⚠️",
+            WebhookEventType.UserLogin => "🔐",
+            WebhookEventType.UserLogout => "👋",
+            WebhookEventType.AccountUpdated => "👤",
+            WebhookEventType.SubscriptionCreated => "💎",
+            WebhookEventType.SubscriptionExpired => "⏰",
+            WebhookEventType.PaymentReceived => "💰",
+            WebhookEventType.PaymentFailed => "❌",
+            WebhookEventType.PaymentRejected => "🚫",
+            _ => "📢"
+        };
+    }
+
+    private List<object> GetRelevantFields(WebhookEventType eventType, Dictionary<string, JsonElement> payload)
+    {
+        var fields = new List<object>();
+
+        // Campos específicos por tipo de evento
+        switch (eventType)
+        {
+            case WebhookEventType.DatabaseCreated:
+            case WebhookEventType.DatabaseDeleted:
+                AddField(fields, "Database Name", GetValue(payload, "databaseName"));
+                AddField(fields, "Engine", GetValue(payload, "engine"));
+                break;
+
+            case WebhookEventType.DatabaseStatusChanged:
+                AddField(fields, "Database Name", GetValue(payload, "databaseName"));
+                AddField(fields, "New Status", GetValue(payload, "newStatus"));
+                AddField(fields, "Previous Status", GetValue(payload, "previousStatus"));
+                break;
+
+            case WebhookEventType.UserLogin:
+                AddField(fields, "Email", GetValue(payload, "email"));
+                break;
+
+            case WebhookEventType.AccountUpdated:
+                AddField(fields, "New Name", GetValue(payload, "newFullName"));
+                break;
+
+            case WebhookEventType.SubscriptionCreated:
+            case WebhookEventType.SubscriptionExpired:
+                AddField(fields, "Plan", GetValue(payload, "planName"));
+                AddField(fields, "Price", "$" + GetValue(payload, "price"));
+                break;
+
+            case WebhookEventType.PaymentReceived:
+            case WebhookEventType.PaymentRejected:
+                AddField(fields, "Amount", "$" + GetValue(payload, "amount") + " " + GetValue(payload, "currency"));
+                AddField(fields, "Plan", GetValue(payload, "planName"));
+                break;
+
+            case WebhookEventType.PaymentFailed:
+                AddField(fields, "Plan", GetValue(payload, "planName"));
+                break;
+        }
+
+        return fields;
+    }
+
+    private void AddField(List<object> fields, string name, string value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            fields.Add(new
+            {
+                name = name,
+                value = $"**{value}**",
+                inline = true
+            });
+        }
     }
 
     public void Dispose()
