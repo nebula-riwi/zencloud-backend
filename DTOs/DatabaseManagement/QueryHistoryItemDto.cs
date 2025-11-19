@@ -9,5 +9,7 @@ public class QueryHistoryItemDto
     public double ExecutionTimeMs { get; set; }
     public string? Error { get; set; }
     public DateTime ExecutedAt { get; set; }
+    public string? DatabaseName { get; set; }
+    public string? EngineType { get; set; }
 }
 

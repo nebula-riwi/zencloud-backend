@@ -23,6 +23,7 @@ public class DatabaseQueryHistoryRepository : IDatabaseQueryHistoryRepository
     public async Task<IReadOnlyList<DatabaseQueryHistory>> GetRecentByUserAndInstanceAsync(Guid userId, Guid instanceId, int limit)
     {
         return await _context.DatabaseQueryHistory
+            .Include(q => q.Instance)
             .Where(q => q.UserId == userId && q.InstanceId == instanceId)
             .OrderByDescending(q => q.ExecutedAt)
             .Take(limit)
