@@ -23,6 +23,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
     private readonly IEncryptionService _encryptionService;
     private readonly ILogger<DatabaseInstanceService> _logger;
     private readonly PgDbContext _dbContext;
+    private readonly IWebhookService _webhookService;
 
     public DatabaseInstanceService(
         IDatabaseInstanceRepository databaseRepository,
@@ -34,7 +35,8 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         IEmailService emailService,
         IEncryptionService encryptionService,
         ILogger<DatabaseInstanceService> logger,
-        PgDbContext dbContext)
+        PgDbContext dbContext,
+        IWebhookService webhookService)
     {
         _databaseRepository = databaseRepository;
         _userRepository = userRepository;
@@ -46,6 +48,7 @@ public class DatabaseInstanceService : IDatabaseInstanceService
         _encryptionService = encryptionService;
         _logger = logger;
         _dbContext = dbContext;
+        _webhookService = webhookService;
     }
 
     public async Task<IEnumerable<DatabaseInstance>> GetUserDatabasesAsync(Guid userId)
@@ -169,6 +172,28 @@ public class DatabaseInstanceService : IDatabaseInstanceService
                 databaseInstance.AssignedPort
             );
 
+            // Trigger webhook para database created
+            try
+            {
+                await _webhookService.TriggerWebhookAsync(
+                    WebhookEventType.DatabaseCreated,
+                    new
+                    {
+                        databaseId = databaseInstance.InstanceId,
+                        databaseName = finalDatabaseName,
+                        engine = engine.EngineName.ToString(),
+                        serverIp = databaseInstance.ServerIpAddress,
+                        port = databaseInstance.AssignedPort,
+                        createdAt = databaseInstance.CreatedAt
+                    },
+                    userId
+                );
+            }
+            catch (Exception webhookEx)
+            {
+                _logger.LogWarning(webhookEx, "Error disparando webhook para DatabaseCreated, pero la BD fue creada correctamente");
+            }
+
             _logger.LogInformation("Base de datos creada exitosamente: {DatabaseName} para usuario {UserId}", finalDatabaseName, userId);
             return databaseInstance;
         }
@@ -286,6 +311,26 @@ private static string GenerateRandomSuffix(int length)
         );
         
         await _databaseRepository.UpdateAsync(instance);
+
+        // Trigger webhook para database deleted
+        try
+        {
+            await _webhookService.TriggerWebhookAsync(
+                WebhookEventType.DatabaseDeleted,
+                new
+                {
+                    databaseId = instance.InstanceId,
+                    databaseName = databaseName,
+                    engine = engineName,
+                    deletedAt = instance.DeletedAt
+                },
+                userId
+            );
+        }
+        catch (Exception webhookEx)
+        {
+            _logger.LogWarning(webhookEx, "Error disparando webhook para DatabaseDeleted");
+        }
     }
 
     public async Task<(DatabaseInstance database, string newPassword)> RotateCredentialsAsync(Guid instanceId, Guid userId)
@@ -393,6 +438,28 @@ private static string GenerateRandomSuffix(int length)
         instance.UpdatedAt = DateTime.UtcNow;
         await _databaseRepository.UpdateAsync(instance);
 
+        // Trigger webhook para database status changed
+        try
+        {
+            await _webhookService.TriggerWebhookAsync(
+                WebhookEventType.DatabaseStatusChanged,
+                new
+                {
+                    databaseId = instance.InstanceId,
+                    databaseName = instance.DatabaseName,
+                    engine = instance.Engine?.EngineName.ToString(),
+                    newStatus = "Active",
+                    previousStatus = "Inactive",
+                    changedAt = instance.UpdatedAt
+                },
+                userId
+            );
+        }
+        catch (Exception webhookEx)
+        {
+            _logger.LogWarning(webhookEx, "Error disparando webhook para DatabaseStatusChanged");
+        }
+
         return instance;
     }
 
@@ -423,6 +490,28 @@ private static string GenerateRandomSuffix(int length)
         instance.Status = DatabaseInstanceStatus.Inactive;
         instance.UpdatedAt = DateTime.UtcNow;
         await _databaseRepository.UpdateAsync(instance);
+
+        // Trigger webhook para database status changed
+        try
+        {
+            await _webhookService.TriggerWebhookAsync(
+                WebhookEventType.DatabaseStatusChanged,
+                new
+                {
+                    databaseId = instance.InstanceId,
+                    databaseName = instance.DatabaseName,
+                    engine = instance.Engine?.EngineName.ToString(),
+                    newStatus = "Inactive",
+                    previousStatus = "Active",
+                    changedAt = instance.UpdatedAt
+                },
+                userId
+            );
+        }
+        catch (Exception webhookEx)
+        {
+            _logger.LogWarning(webhookEx, "Error disparando webhook para DatabaseStatusChanged");
+        }
 
         return instance;
     }

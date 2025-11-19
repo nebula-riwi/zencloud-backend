@@ -19,6 +19,7 @@ namespace ZenCloud.Services
         private readonly IPlanRepository _planRepository;
         private readonly IPlanValidationService _planValidationService;
         private readonly ILogger<MercadoPagoService> _logger;
+        private readonly IWebhookService _webhookService;
 
         public MercadoPagoService(
             IConfiguration configuration, 
@@ -28,7 +29,8 @@ namespace ZenCloud.Services
             ISubscriptionRepository subscriptionRepository,
             IPlanRepository planRepository,
             IPlanValidationService planValidationService,
-            ILogger<MercadoPagoService> logger)
+            ILogger<MercadoPagoService> logger,
+            IWebhookService webhookService)
         {
             _accessToken = configuration["MercadoPago:AccessToken"]!;
             _paymentRepository = paymentRepository;
@@ -38,6 +40,7 @@ namespace ZenCloud.Services
             _planRepository = planRepository;
             _planValidationService = planValidationService;
             _logger = logger;
+            _webhookService = webhookService;
 
             _httpClient = new HttpClient
             {
@@ -279,6 +282,29 @@ namespace ZenCloud.Services
             {
                 await ProcessApprovedPaymentAsync(payment, planId, userId);
             }
+            else
+            {
+                // Trigger webhook para pago rechazado
+                try
+                {
+                    await _webhookService.TriggerWebhookAsync(
+                        WebhookEventType.PaymentRejected,
+                        new
+                        {
+                            paymentId = payment.PaymentId,
+                            amount = payment.Amount,
+                            currency = payment.Currency,
+                            status = status,
+                            rejectedAt = DateTime.UtcNow
+                        },
+                        userId
+                    );
+                }
+                catch (Exception webhookEx)
+                {
+                    _logger.LogWarning(webhookEx, "Error disparando webhook para PaymentRejected");
+                }
+            }
         }
 
 
@@ -346,6 +372,28 @@ namespace ZenCloud.Services
 
                 await _subscriptionRepository.AddAsync(subscription);
                 Console.WriteLine($"Nueva suscripcion creada: {subscription.SubscriptionId}");
+
+                // Trigger webhook para subscription created
+                try
+                {
+                    await _webhookService.TriggerWebhookAsync(
+                        WebhookEventType.SubscriptionCreated,
+                        new
+                        {
+                            subscriptionId = subscription.SubscriptionId,
+                            planId = plan.PlanId,
+                            planName = plan.PlanName.ToString(),
+                            startDate = subscription.StartDate,
+                            endDate = subscription.EndDate,
+                            price = plan.PriceInCOP
+                        },
+                        userId
+                    );
+                }
+                catch (Exception webhookEx)
+                {
+                    _logger.LogWarning(webhookEx, "Error disparando webhook para SubscriptionCreated");
+                }
             }
 
             // Vincular el pago con la suscripción
@@ -385,8 +433,31 @@ namespace ZenCloud.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"Error enviando email de cambio de plan: {ex.Message}");
+            }
+
+            // Trigger webhook para payment received
+            try
+            {
+                await _webhookService.TriggerWebhookAsync(
+                    WebhookEventType.PaymentReceived,
+                    new
+                    {
+                        paymentId = payment.PaymentId,
+                        subscriptionId = subscription.SubscriptionId,
+                        planName = plan.PlanName.ToString(),
+                        amount = payment.Amount,
+                        currency = payment.Currency,
+                        paymentMethod = payment.PaymentMethod,
+                        approvedAt = payment.TransactionDate
+                    },
+                    userId
+                );
+            }
+            catch (Exception webhookEx)
+            {
+                _logger.LogWarning(webhookEx, "Error disparando webhook para PaymentReceived");
+            }
         }
-    }
 
     public async Task<bool> TryAutoRenewSubscriptionAsync(Subscription subscription)
     {
