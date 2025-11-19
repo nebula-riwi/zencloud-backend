@@ -173,9 +173,13 @@ namespace ZenCloud.Services.Implementations
             QueryResult result;
             try
             {
-                result = instance.Engine.EngineName == DatabaseEngineType.PostgreSQL
-                    ? await GetPostgreSQLTablesAsync(instance)
-                    : await GetMySQLTablesAsync(instance);
+                result = instance.Engine.EngineName switch
+                {
+                    DatabaseEngineType.PostgreSQL => await GetPostgreSQLTablesAsync(instance),
+                    DatabaseEngineType.SQLServer => await GetSQLServerTablesAsync(instance),
+                    DatabaseEngineType.MySQL => await GetMySQLTablesAsync(instance),
+                    _ => throw new NotSupportedException($"Motor {instance.Engine.EngineName} no soportado para listar tablas")
+                };
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("conectar") || ex.Message.Contains("Timeout"))
             {
@@ -345,6 +349,77 @@ namespace ZenCloud.Services.Implementations
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
                 _logger.LogError(ex, "Error obteniendo tablas de PostgreSQL para instanceId: {InstanceId}", instance.InstanceId);
+            }
+
+            return result;
+        }
+
+        private async Task<QueryResult> GetSQLServerTablesAsync(DatabaseInstance instance)
+        {
+            var result = new QueryResult();
+            try
+            {
+                var decryptedPassword = _encryptionService.Decrypt(instance.DatabasePasswordHash) ?? string.Empty;
+                decryptedPassword = decryptedPassword.Replace("\0", string.Empty).Trim();
+
+                // Si el backend está en Docker, usar el nombre del contenedor y puerto interno
+                var host = instance.ServerIpAddress == "168.119.182.243" || instance.ServerIpAddress == "localhost" || instance.ServerIpAddress == "127.0.0.1"
+                    ? "sqlserver-ZenDb"
+                    : instance.ServerIpAddress;
+                var port = instance.ServerIpAddress == "168.119.182.243" || instance.ServerIpAddress == "localhost" || instance.ServerIpAddress == "127.0.0.1"
+                    ? 1433
+                    : instance.AssignedPort;
+
+                var sqlBuilder = new SqlConnectionStringBuilder
+                {
+                    DataSource = $"{host},{port}",
+                    InitialCatalog = instance.DatabaseName,
+                    UserID = instance.DatabaseUser,
+                    Password = decryptedPassword,
+                    ConnectTimeout = 30,
+                    TrustServerCertificate = true
+                };
+
+                _logger.LogInformation("SQL Server connstring prepared for instance {InstanceId}: user={User} host={Host} port={Port} pwdLen={PwdLen}",
+                    instance.InstanceId, instance.DatabaseUser, host, port, decryptedPassword.Length);
+
+                await using var connection = new SqlConnection(sqlBuilder.ConnectionString);
+                await connection.OpenAsync();
+
+                const string query = @"
+                    SELECT 
+                        t.TABLE_NAME as tablename,
+                        t.TABLE_TYPE as table_type,
+                        ISNULL(p.rows, 0) as row_count,
+                        GETDATE() as create_time
+                    FROM INFORMATION_SCHEMA.TABLES t
+                    LEFT JOIN sys.tables st ON st.name = t.TABLE_NAME
+                    LEFT JOIN sys.partitions p ON p.object_id = st.object_id AND p.index_id IN (0,1)
+                    WHERE t.TABLE_SCHEMA = 'dbo' AND t.TABLE_TYPE = 'BASE TABLE'
+                    GROUP BY t.TABLE_NAME, t.TABLE_TYPE, p.rows
+                    ORDER BY t.TABLE_NAME";
+
+                await using var command = new SqlCommand(query, connection);
+                await using var reader = await command.ExecuteReaderAsync();
+
+                for (int i = 0; i < reader.FieldCount; i++)
+                    result.Columns.Add(reader.GetName(i));
+
+                while (await reader.ReadAsync())
+                {
+                    var row = new object[reader.FieldCount];
+                    for (int i = 0; i < reader.FieldCount; i++)
+                        row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                    result.Rows.Add(row);
+                }
+
+                result.Success = true;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                _logger.LogError(ex, "Error obteniendo tablas de SQL Server para instanceId: {InstanceId}", instance.InstanceId);
             }
 
             return result;
