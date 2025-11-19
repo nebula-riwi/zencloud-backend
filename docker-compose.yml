@@ -173,7 +173,7 @@ services:
     volumes:
       - redis_data:/data
 
-  # SQL Server Express (GRATIS - Límite 10GB por DB) - RECURSOS MÍNIMOS
+  # SQL Server Express (GRATIS - Límite 10GB por DB) - RECURSOS AJUSTADOS
   sqlserver-ZenDb:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sqlserver-ZenDb
@@ -181,18 +181,18 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
+          cpus: '1.5'
+          memory: 2G
         reservations:
-          cpus: '0.25'
-          memory: 512M
+          cpus: '0.5'
+          memory: 1G
     ports:
       - "1433:1433"
     environment:
       - ACCEPT_EULA=Y
       - MSSQL_SA_PASSWORD=${SQLSERVER_ADMIN_PASSWORD:-YourStrong@Passw0rd123}
       - MSSQL_PID=Express
-      - MSSQL_MEMORY_LIMIT_MB=768
+      - MSSQL_MEMORY_LIMIT_MB=1536
     volumes:
       - sqlserver_data:/var/opt/mssql
 
