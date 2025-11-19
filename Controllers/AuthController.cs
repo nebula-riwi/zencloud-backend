@@ -23,6 +23,7 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IWebhookService _webhookService;
     private static readonly Lazy<string> VerificationResultTemplate = new(() =>
     {
         var templatePath = Path.Combine(Directory.GetCurrentDirectory(), "Templates", "EmailVerificationResultTemplate.html");
@@ -34,10 +35,11 @@ public class AuthController : ControllerBase
         return @"<!DOCTYPE html><html lang=""es""><head><meta charset=""UTF-8""><title>ZenCloud · Verificación</title></head><body style=""font-family:Arial, sans-serif;background:#0f1014;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;""><div style=""max-width:480px;padding:32px;background:#161821;border-radius:24px;text-align:center;border:1px solid rgba(255,255,255,0.1);""><h1 style=""margin-bottom:12px;"">{{TITLE}}</h1><p style=""margin-bottom:24px;color:#bbb;"">{{MESSAGE}}</p><a href=""{{CTA_URL}}"" style=""display:inline-block;padding:12px 28px;border-radius:999px;background:#e78a53;color:#0f1014;text-decoration:none;font-weight:600;"">{{CTA_LABEL}}</a></div></body></html>";
     });
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, ILogger<AuthController> logger, IWebhookService webhookService)
     {
         _authService = authService;
         _logger = logger;
+        _webhookService = webhookService;
     }
 
     /// <summary>
@@ -278,6 +280,117 @@ public class AuthController : ControllerBase
             .Replace("{{CTA_URL}}", model.CtaUrl);
 
         return Content(html, "text/html; charset=utf-8");
+    }
+
+    /// <summary>
+    /// Cierra la sesión del usuario actual
+    /// </summary>
+    /// <returns>Mensaje de confirmación</returns>
+    /// <response code="200">Sesión cerrada exitosamente</response>
+    /// <response code="401">No autenticado</response>
+    [HttpPost("logout")]
+    [Authorize]
+    [SwaggerOperation(Summary = "Cerrar sesión", Description = "Cierra la sesión del usuario actual")]
+    [SwaggerResponse(200, "Sesión cerrada exitosamente")]
+    [SwaggerResponse(401, "No autenticado")]
+    public async Task<IActionResult> Logout()
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            // Trigger webhook para user logout
+            try
+            {
+                await _webhookService.TriggerWebhookAsync(
+                    ZenCloud.Data.Entities.WebhookEventType.UserLogout,
+                    new
+                    {
+                        userId = userId,
+                        logoutAt = DateTime.UtcNow
+                    },
+                    userId
+                );
+            }
+            catch (Exception webhookEx)
+            {
+                _logger.LogWarning(webhookEx, "Error disparando webhook para UserLogout");
+            }
+
+            return Ok(new { message = "Sesión cerrada exitosamente" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cerrando sesión");
+            return StatusCode(500, new { message = "Error al cerrar sesión" });
+        }
+    }
+
+    /// <summary>
+    /// Actualiza el nombre del usuario actual
+    /// </summary>
+    /// <param name="request">Nuevo nombre</param>
+    /// <returns>Usuario actualizado</returns>
+    /// <response code="200">Nombre actualizado exitosamente</response>
+    /// <response code="400">Nombre inválido</response>
+    /// <response code="401">No autenticado</response>
+    [HttpPut("profile")]
+    [Authorize]
+    [SwaggerOperation(Summary = "Actualizar perfil", Description = "Actualiza el nombre del usuario actual")]
+    [SwaggerResponse(200, "Perfil actualizado exitosamente")]
+    [SwaggerResponse(400, "Datos inválidos")]
+    [SwaggerResponse(401, "No autenticado")]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+    {
+        try
+        {
+            var userIdClaim = User.FindFirst("userId")?.Value ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Usuario no autenticado" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Length < 2)
+            {
+                return BadRequest(new { message = "El nombre debe tener al menos 2 caracteres" });
+            }
+
+            var success = await _authService.UpdateProfileAsync(userId, request.FullName);
+            if (!success)
+            {
+                return NotFound(new { message = "Usuario no encontrado" });
+            }
+
+            // Trigger webhook para account updated
+            try
+            {
+                await _webhookService.TriggerWebhookAsync(
+                    ZenCloud.Data.Entities.WebhookEventType.AccountUpdated,
+                    new
+                    {
+                        userId = userId,
+                        newFullName = request.FullName,
+                        updatedAt = DateTime.UtcNow
+                    },
+                    userId
+                );
+            }
+            catch (Exception webhookEx)
+            {
+                _logger.LogWarning(webhookEx, "Error disparando webhook para AccountUpdated");
+            }
+
+            return Ok(new { message = "Perfil actualizado exitosamente", fullName = request.FullName });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error actualizando perfil");
+            return StatusCode(500, new { message = "Error al actualizar perfil" });
+        }
     }
 }
 

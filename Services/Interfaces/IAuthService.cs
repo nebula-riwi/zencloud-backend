@@ -10,4 +10,5 @@ public interface IAuthService
     Task<bool> RequestPasswordResetAsync(string email);
     Task<bool> ResetPasswordAsync(string email, string token, string newPassword);
     Task<(bool Success, string? ErrorCode, string? ErrorMessage)> ResetPasswordWithDetailsAsync(string email, string token, string newPassword);
+    Task<bool> UpdateProfileAsync(Guid userId, string fullName);
 }
