@@ -252,7 +252,7 @@ public class WebhookService : IWebhookService, IDisposable
                     author = new
                     {
                         name = "ZenCloud Database Platform",
-                        icon_url = "https://nebula.andrescortes.dev/favicon.svg"
+                        icon_url = "https://nebula.andrescortes.dev/ZenCloud.png"
                     },
                     title = GetEventEmoji(eventType) + " " + title,
                     description = description,
@@ -260,7 +260,7 @@ public class WebhookService : IWebhookService, IDisposable
                     fields = fields.ToArray(),
                     thumbnail = new
                     {
-                        url = "https://nebula.andrescortes.dev/favicon.svg"
+                        url = "https://nebula.andrescortes.dev/ZenCloud.png"
                     },
                     footer = new
                     {
