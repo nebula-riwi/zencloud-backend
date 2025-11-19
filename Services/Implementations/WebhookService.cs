@@ -3,27 +3,28 @@ using System.Text.Json;
 using ZenCloud.Data.Entities;
 using ZenCloud.Data.Repositories.Interfaces;
 using ZenCloud.Services.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ZenCloud.Services.Implementations;
 
 public class WebhookService : IWebhookService, IDisposable
 {
     private readonly IWebhookRepository _webhookRepository;
-    private readonly IRepository<WebhookLog> _webhookLogRepository;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<WebhookService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
     private bool _disposed = false;
 
     public WebhookService(
         IWebhookRepository webhookRepository,
-        IRepository<WebhookLog> webhookLogRepository,
         IHttpClientFactory httpClientFactory,
-        ILogger<WebhookService> logger)
+        ILogger<WebhookService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _webhookRepository = webhookRepository;
-        _webhookLogRepository = webhookLogRepository;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     public async Task<WebhookConfiguration> CreateWebhookAsync(Guid userId, string name, string webhookUrl, WebhookEventType eventType)
@@ -110,30 +111,37 @@ public class WebhookService : IWebhookService, IDisposable
 
         var payloadJson = JsonSerializer.Serialize(payload);
         
-        // Ejecutar webhooks secuencialmente para evitar conflictos de DbContext
+        // Ejecutar webhooks en background sin bloquear
         foreach (var webhook in webhooks)
         {
-            // Fire and forget - no esperar respuesta para no bloquear
+            var webhookId = webhook.WebhookId;
+            var webhookUrl = webhook.WebhookUrl;
+            var secretToken = webhook.SecretToken;
+            
+            // Fire and forget con scope propio
             _ = Task.Run(async () =>
             {
+                using var scope = _scopeFactory.CreateScope();
+                var logRepository = scope.ServiceProvider.GetRequiredService<IRepository<WebhookLog>>();
+                
                 try
                 {
-                    await SendWebhookAsync(webhook, eventType, payloadJson);
+                    await SendWebhookAsync(webhookId, webhookUrl, secretToken, eventType, payloadJson, logRepository);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error enviando webhook {WebhookId}", webhook.WebhookId);
+                    _logger.LogError(ex, "Error enviando webhook {WebhookId}", webhookId);
                 }
             });
         }
     }
 
-    private async Task SendWebhookAsync(WebhookConfiguration webhook, WebhookEventType eventType, string payloadJson)
+    private async Task SendWebhookAsync(Guid webhookId, string webhookUrl, string secretToken, WebhookEventType eventType, string payloadJson, IRepository<WebhookLog> logRepository)
     {
         var log = new WebhookLog
         {
             WebhookLogId = Guid.NewGuid(),
-            WebhookId = webhook.WebhookId,
+            WebhookId = webhookId,
             EventType = eventType,
             PayloadJson = payloadJson,
             Status = WebhookLogStatus.Pending,
@@ -148,17 +156,17 @@ public class WebhookService : IWebhookService, IDisposable
         try
         {
             // Detectar si es Discord y convertir el payload
-            var isDiscord = webhook.WebhookUrl.Contains("discord.com", StringComparison.OrdinalIgnoreCase);
+            var isDiscord = webhookUrl.Contains("discord.com", StringComparison.OrdinalIgnoreCase);
             var finalPayload = isDiscord ? ConvertToDiscordFormat(eventType, payloadJson) : payloadJson;
             
             var content = new StringContent(finalPayload, Encoding.UTF8, "application/json");
             if (!isDiscord)
             {
                 content.Headers.Add("X-Webhook-Event", eventType.ToString());
-                content.Headers.Add("X-Webhook-Signature", GenerateSignature(payloadJson, webhook.SecretToken));
+                content.Headers.Add("X-Webhook-Signature", GenerateSignature(payloadJson, secretToken));
             }
 
-            var response = await httpClient.PostAsync(webhook.WebhookUrl, content);
+            var response = await httpClient.PostAsync(webhookUrl, content);
             var responseBody = await response.Content.ReadAsStringAsync();
 
             log.ResponseStatusCode = (int)response.StatusCode;
@@ -166,17 +174,17 @@ public class WebhookService : IWebhookService, IDisposable
             log.Status = response.IsSuccessStatusCode ? WebhookLogStatus.Success : WebhookLogStatus.Failed;
             log.SentAt = DateTime.UtcNow;
 
-            _logger.LogInformation("Webhook enviado: {WebhookUrl} - Status: {StatusCode}", webhook.WebhookUrl, response.StatusCode);
+            _logger.LogInformation("Webhook enviado: {WebhookUrl} - Status: {StatusCode}", webhookUrl, response.StatusCode);
         }
         catch (Exception ex)
         {
             log.Status = WebhookLogStatus.Failed;
             log.ResponseBody = ex.Message;
-            _logger.LogError(ex, "Error enviando webhook: {WebhookUrl}", webhook.WebhookUrl);
+            _logger.LogError(ex, "Error enviando webhook: {WebhookUrl}", webhookUrl);
         }
         finally
         {
-            await _webhookLogRepository.CreateAsync(log);
+            await logRepository.CreateAsync(log);
         }
     }
 
