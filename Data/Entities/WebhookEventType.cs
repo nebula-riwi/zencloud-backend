@@ -2,7 +2,6 @@ namespace ZenCloud.Data.Entities;
 
 public enum WebhookEventType
 {
-    AccountCreated = 1,
     AccountUpdated = 2,
     DatabaseCreated = 3,
     DatabaseDeleted = 4,
@@ -12,5 +11,7 @@ public enum WebhookEventType
     PaymentReceived = 8,
     PaymentFailed = 9,
     UserLogin = 10,
-    UserLogout = 11
+    UserLogout = 11,
+    PaymentRejected = 12,
+    AllEvents = 999
 }

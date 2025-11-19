@@ -10,7 +10,10 @@ namespace ZenCloud.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-
+            migrationBuilder.Sql(@"
+                ALTER TABLE ""WebhookConfigurations"" 
+                ALTER COLUMN ""SecretToken"" TYPE character varying(500);
+            ");
         }
 
         /// <inheritdoc />
