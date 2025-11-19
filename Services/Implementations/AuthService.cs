@@ -253,4 +253,28 @@ public class AuthService : IAuthService
         var (success, _, _) = await ResetPasswordWithDetailsAsync(email, token, newPassword);
         return success;
     }
+
+    public async Task<bool> UpdateProfileAsync(Guid userId, string fullName)
+    {
+        try
+        {
+            var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.UserId == userId);
+            if (user == null || !user.IsActive)
+            {
+                return false;
+            }
+
+            user.FullName = fullName.Trim();
+            user.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Perfil actualizado para usuario {UserId}", userId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error actualizando perfil para usuario {UserId}", userId);
+            return false;
+        }
+    }
 }
