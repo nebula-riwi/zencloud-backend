@@ -10,5 +10,7 @@ public enum WebhookEventType
     SubscriptionCreated = 6,
     SubscriptionExpired = 7,
     PaymentReceived = 8,
-    PaymentFailed = 9
+    PaymentFailed = 9,
+    UserLogin = 10,
+    UserLogout = 11
 }
