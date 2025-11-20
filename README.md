@@ -85,21 +85,6 @@ docker exec ZenCloud dotnet ef database update
 
 ## ⚙️ Configuración
 
-### Variables de Entorno Esenciales
-
-```bash
-CONNECTION_STRING=Host=some-postgres;Port=5432;Database=ZenCloud;Username=postgres;Password=xxx
-JWT_KEY=clave_secreta_minimo_32_caracteres
-SMTP_SERVER=smtp.gmail.com
-SMTP_USERNAME=email@gmail.com
-SMTP_PASSWORD=app_password
-WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
-ENCRYPTION_KEY=base64_key
-MYSQL_ADMIN_PASSWORD=pass123
-POSTGRES_ADMIN_PASSWORD=pass123
-SQLSERVER_ADMIN_PASSWORD=YourStrong@Passw0rd123
-```
-
 ## 📚 API
 
 ### Endpoints Principales
