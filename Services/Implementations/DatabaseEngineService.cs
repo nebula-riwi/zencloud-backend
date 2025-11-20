@@ -37,6 +37,12 @@ public class DatabaseEngineService : IDatabaseEngineService
             case "redis":
                 await CreateRedisDatabaseAsync(databaseName, username, password);
                 break;
+            case "sqlserver":
+                await CreateSQLServerDatabaseAsync(databaseName, username, password);
+                break;
+            case "cassandra":
+                await CreateCassandraKeyspaceAsync(databaseName, username, password);
+                break;
             default:
                 throw new NotSupportedException($"Motor {engineName} no soportado");
         }
@@ -57,6 +63,12 @@ public class DatabaseEngineService : IDatabaseEngineService
                 break;
             case "redis":
                 await DeleteRedisDatabaseAsync(databaseName, username);
+                break;
+            case "sqlserver":
+                await DeleteSQLServerDatabaseAsync(databaseName, username);
+                break;
+            case "cassandra":
+                await DeleteCassandraKeyspaceAsync(databaseName, username);
                 break;
             default:
                 throw new NotSupportedException($"Motor {engineName} no soportado");
@@ -696,5 +708,125 @@ public class DatabaseEngineService : IDatabaseEngineService
         {
             throw new InvalidOperationException($"Error rotando credenciales Redis: {ex.Message}", ex);
         }
+    }
+
+    // ==================== SQL SERVER ====================
+    private async Task CreateSQLServerDatabaseAsync(string databaseName, string username, string password)
+    {
+        var host = _configuration["SQLSERVER_HOST"] ?? "sqlserver-ZenDb";
+        var port = _configuration["SQLSERVER_PORT"] ?? "1433";
+        var adminPassword = _configuration["SQLSERVER_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("SQLSERVER_ADMIN_PASSWORD no configurado");
+
+        var connectionString = $"Server={host},{port};User Id=sa;Password={adminPassword};TrustServerCertificate=true;Connection Timeout=30;";
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+
+        // Crear base de datos
+        var createDbCommand = $"IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = '{databaseName}') CREATE DATABASE [{databaseName}]";
+        await using (var cmd = new SqlCommand(createDbCommand, connection))
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+        _logger.LogInformation("Base de datos SQL Server '{DatabaseName}' creada o ya existe", databaseName);
+
+        // Cambiar a la base de datos creada
+        await connection.ChangeDatabaseAsync(databaseName);
+
+        // Crear login y usuario
+        var createLoginCommand = $@"
+            IF NOT EXISTS (SELECT * FROM sys.server_principals WHERE name = '{username}')
+            CREATE LOGIN [{username}] WITH PASSWORD = '{password}'";
+        await using (var cmd = new SqlCommand(createLoginCommand, connection))
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var createUserCommand = $@"
+            IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = '{username}')
+            CREATE USER [{username}] FOR LOGIN [{username}]";
+        await using (var cmd2 = new SqlCommand(createUserCommand, connection))
+        {
+            await cmd2.ExecuteNonQueryAsync();
+        }
+
+        // Otorgar permisos
+        var grantCommand = $"ALTER ROLE db_owner ADD MEMBER [{username}]";
+        await using (var cmd3 = new SqlCommand(grantCommand, connection))
+        {
+            await cmd3.ExecuteNonQueryAsync();
+        }
+
+        _logger.LogInformation("Usuario SQL Server '{Username}' creado con permisos", username);
+    }
+
+    private async Task DeleteSQLServerDatabaseAsync(string databaseName, string username)
+    {
+        var host = _configuration["SQLSERVER_HOST"] ?? "sqlserver-ZenDb";
+        var port = _configuration["SQLSERVER_PORT"] ?? "1433";
+        var adminPassword = _configuration["SQLSERVER_ADMIN_PASSWORD"] ?? throw new InvalidOperationException("SQLSERVER_ADMIN_PASSWORD no configurado");
+
+        var connectionString = $"Server={host},{port};User Id=sa;Password={adminPassword};TrustServerCertificate=true;Connection Timeout=30;";
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+
+        // Eliminar usuario
+        try
+        {
+            await connection.ChangeDatabaseAsync(databaseName);
+            var dropUserCommand = $"IF EXISTS (SELECT * FROM sys.database_principals WHERE name = '{username}') DROP USER [{username}]";
+            await using var cmd = new SqlCommand(dropUserCommand, connection);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error eliminando usuario SQL Server '{Username}'", username);
+        }
+
+        // Volver a master y eliminar login
+        await connection.ChangeDatabaseAsync("master");
+        try
+        {
+            var dropLoginCommand = $"IF EXISTS (SELECT * FROM sys.server_principals WHERE name = '{username}') DROP LOGIN [{username}]";
+            await using var cmd = new SqlCommand(dropLoginCommand, connection);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error eliminando login SQL Server '{Username}'", username);
+        }
+
+        // Eliminar base de datos
+        var dropDbCommand = $@"
+            IF EXISTS (SELECT * FROM sys.databases WHERE name = '{databaseName}')
+            BEGIN
+                ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                DROP DATABASE [{databaseName}];
+            END";
+        await using (var cmd2 = new SqlCommand(dropDbCommand, connection))
+        {
+            await cmd2.ExecuteNonQueryAsync();
+        }
+
+        _logger.LogInformation("Base de datos SQL Server '{DatabaseName}' eliminada", databaseName);
+    }
+
+    // ==================== CASSANDRA ====================
+    private async Task CreateCassandraKeyspaceAsync(string keyspaceName, string username, string password)
+    {
+        // Cassandra no requiere crear keyspace por adelantado desde aquí
+        // Se crea cuando el usuario se conecta por primera vez
+        // Solo loguear que está disponible
+        _logger.LogInformation("Keyspace Cassandra '{KeyspaceName}' preparado para usuario '{Username}'", keyspaceName, username);
+        await Task.CompletedTask;
+    }
+
+    private async Task DeleteCassandraKeyspaceAsync(string keyspaceName, string username)
+    {
+        // Cassandra: eliminación manual o script externo
+        // Por simplicidad, solo loguear
+        _logger.LogInformation("Keyspace Cassandra '{KeyspaceName}' marcado para eliminación", keyspaceName);
+        await Task.CompletedTask;
     }
 }

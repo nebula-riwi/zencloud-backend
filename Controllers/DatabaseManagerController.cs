@@ -78,7 +78,8 @@ namespace ZenCloud.Controllers
                 var result = await _dbService.ExecuteQueryAsync(instanceId, userId, request.Query);
                 
                 // ✅ Usa DatabaseUpdated para ejecución de queries
-                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseUpdated, $"Query executed: {request.Query[..50]}...");
+                var queryPreview = request.Query.Length > 50 ? request.Query.Substring(0, 50) + "..." : request.Query;
+                await _auditService.LogDatabaseEventAsync(userId, instanceId, AuditAction.DatabaseUpdated, $"Query executed: {queryPreview}");
                 
                 return Ok(result);
             }
