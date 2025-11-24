@@ -129,6 +129,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IWebhookRepository, WebhookRepository>();
 builder.Services.AddScoped<IDatabaseQueryHistoryRepository, DatabaseQueryHistoryRepository>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 
 // Services (Business Logic)
 builder.Services.AddScoped<IAuthService, AuthService>();
