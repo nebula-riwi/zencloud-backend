@@ -281,7 +281,7 @@ public class PaymentsController : ControllerBase
     // Se mantiene solo para compatibilidad con código legacy pero no hace nada
     [HttpPost("cancel-expired-pending")]
     [Authorize]
-    public async Task<IActionResult> CancelExpiredPendingPayments()
+    public IActionResult CancelExpiredPendingPayments()
     {
         try
         {
