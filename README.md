@@ -42,11 +42,33 @@ API RESTful construida con **ASP.NET Core 8.0** que permite la gestión centrali
 - Listado de tablas y esquemas
 - Exportación a .sql
 
-### 📊 Auditoría
-- Registro completo de operaciones
-- Logs de seguridad
-- Notificaciones Discord webhook
-- Trazabilidad de cambios
+### 📊 Auditoría y Logs
+- **Audit logs** completo de todas las operaciones
+- **Logs de bases de datos** con IP y timestamp
+- **Filtrado temporal** de registros
+- **Trazabilidad** de todas las acciones
+- **Webhooks personalizados** para eventos
+
+### 🔔 Sistema de Webhooks
+- **Gestión de webhooks** por usuario
+- **Eventos configurables**: creación, eliminación, cambios de estado
+- **Contador de ejecuciones** por webhook
+- **Activación/desactivación** dinámica
+- **Notificaciones en tiempo real**
+
+### 💳 Sistema de Pagos
+- **Integración con MercadoPago** para procesar pagos
+- **Gestión de planes** (Free, Basic, Pro)
+- **Suscripciones** con renovación automática
+- **Webhooks de MercadoPago** para confirmación de pagos
+- **Historial de transacciones**
+- **Validación de límites** por plan
+
+### 🤖 AI Assistant
+- **Integración con OpenAI** (GPT-4)
+- **Chat contextual** con información del usuario
+- **Sugerencias de queries SQL**
+- **Historial de conversaciones**
 
 ## 🛠 Tecnologías
 
@@ -85,6 +107,32 @@ docker exec ZenCloud dotnet ef database update
 
 ## ⚙️ Configuración
 
+### Variables de Entorno Requeridas
+
+```bash
+# Base de datos principal (PostgreSQL)
+ConnectionStrings__DefaultConnection=...
+
+# JWT
+JWT__Secret=...
+JWT__Issuer=ZenCloud
+JWT__Audience=ZenCloudUsers
+
+# MercadoPago (usar variables de entorno, no appsettings.json)
+MercadoPago__AccessToken=...
+
+# OpenAI
+OpenAI__ApiKey=...
+
+# Notificaciones Discord (opcional)
+DiscordWebhookUrl=...
+```
+
+**Nota importante sobre MercadoPago:**
+- Las credenciales de MercadoPago deben configurarse como **variables de entorno**
+- NO incluir `AccessToken` en `appsettings.json` por seguridad
+- Ver `PRODUCTION_SETUP.md` para instrucciones detalladas de configuración en producción
+
 ## 📚 API
 
 ### Endpoints Principales
@@ -109,6 +157,36 @@ GET    /api/DatabaseInstance/{id}/export     # Exportar SQL
 ```http
 GET    /api/databases/{id}/DatabaseManager/tables     # Listar tablas
 POST   /api/databases/{id}/DatabaseManager/execute    # Ejecutar query
+```
+
+#### Webhooks
+```http
+GET    /api/Webhook                    # Listar webhooks del usuario
+POST   /api/Webhook                    # Crear webhook
+PUT    /api/Webhook/{id}               # Actualizar webhook
+DELETE /api/Webhook/{id}               # Eliminar webhook
+GET    /api/Webhook/stats              # Estadísticas de ejecuciones
+```
+
+#### Pagos y Suscripciones
+```http
+POST   /api/Payments/create-preference           # Crear preferencia de pago
+POST   /api/Payments/webhook                     # Webhook de MercadoPago
+GET    /api/Payments/history                     # Historial de pagos
+GET    /api/Payments/subscription                # Información de suscripción
+GET    /api/Plans                                # Listar planes disponibles
+```
+
+#### Audit Logs
+```http
+GET    /api/AuditLogs/account          # Logs de cuenta del usuario
+GET    /api/AuditLogs/databases        # Logs de bases de datos
+```
+
+#### AI Assistant
+```http
+POST   /api/AI/chat                    # Enviar mensaje al asistente
+GET    /api/AI/history                 # Historial de conversaciones
 ```
 
 ### Ejemplo: Crear Base de Datos
